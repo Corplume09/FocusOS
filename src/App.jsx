@@ -1735,6 +1735,7 @@ function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState("");
   const [error, setError]       = useState("");
   const [loading, setLoading]   = useState(false);
+  const [focused, setFocused]   = useState(null);
 
   const handle = async (e) => {
     e?.preventDefault();
