@@ -2,9 +2,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 // ── Auth & Supabase Config ────────────────────────────────────────────────
 // Replace these with your actual Supabase project values in .env
-const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL  || "https://hfgqmlpvcixxjqyqhxfh.supabase.co";
-const SUPABASE_KEY  = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhmZ3FtbHB2Y2l4eGpxeXFoeGZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5NTIwNjcsImV4cCI6MjA5NjUyODA2N30.oQ8ajczjwEijb4XpRNkcXYkdthfpLyb7xL3E_o_-qJ8";
-const DEV_PASSWORD  = import.meta.env.VITE_DEV_PASSWORD  || "F0cu5O$";
+const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL  || "";
+const SUPABASE_KEY  = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+const DEV_PASSWORD  = import.meta.env.VITE_DEV_PASSWORD  || "focusdev2025";
 
 // Lightweight Supabase REST helper — no SDK needed
 async function sbFetch(path, opts = {}) {
@@ -765,6 +765,90 @@ const CSS = `
   .ch-done-cat{font-size:0.68rem;color:var(--mt);min-width:70px;flex-shrink:0;}
   .ch-done-task{flex:1;font-size:0.82rem;color:var(--mt);text-decoration:line-through;line-height:1.35;}
   .ch-done-pts{font-family:var(--fm);font-size:0.82rem;font-weight:600;flex-shrink:0;}
+
+  /* ══ LOGIN ══ */
+  @keyframes orb-drift{0%,100%{transform:translate(0,0) scale(1);}50%{transform:translate(30px,-20px) scale(1.08);}}
+  @keyframes card-in{from{opacity:0;transform:translateY(24px) scale(0.97);}to{opacity:1;transform:translateY(0) scale(1);}}
+  @keyframes pulse-ring{0%{box-shadow:0 0 0 0 rgba(212,168,75,0.4);}70%{box-shadow:0 0 0 10px rgba(212,168,75,0);}100%{box-shadow:0 0 0 0 rgba(212,168,75,0);}}
+  .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:20px;position:relative;overflow:hidden;}
+  .login-bg{position:fixed;inset:0;pointer-events:none;z-index:0;}
+  .login-orb{position:absolute;border-radius:50%;filter:blur(80px);opacity:0.18;animation:orb-drift 8s ease-in-out infinite;}
+  .orb1{width:420px;height:420px;background:radial-gradient(circle,#d4a84b,transparent);top:-80px;left:-100px;animation-delay:0s;}
+  .orb2{width:320px;height:320px;background:radial-gradient(circle,#4a7fd4,transparent);bottom:-60px;right:-80px;animation-delay:-3s;}
+  .orb3{width:260px;height:260px;background:radial-gradient(circle,#4caf88,transparent);top:40%;left:60%;animation-delay:-6s;}
+  .login-card{position:relative;z-index:1;background:rgba(22,22,26,0.88);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.08);border-radius:22px;padding:36px 28px 28px;width:100%;max-width:400px;animation:card-in 0.5s cubic-bezier(0.16,1,0.3,1) both;box-shadow:0 32px 80px rgba(0,0,0,0.5),0 0 0 1px rgba(255,255,255,0.04);}
+  .login-brand{text-align:center;margin-bottom:22px;}
+  .login-icon-wrap{display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;background:linear-gradient(135deg,rgba(212,168,75,0.2),rgba(212,168,75,0.05));border:1px solid rgba(212,168,75,0.3);border-radius:18px;margin-bottom:14px;animation:pulse-ring 2.5s ease-out infinite;}
+  .login-icon{font-size:2rem;line-height:1;}
+  .login-title{font-family:var(--fd);font-size:2.1rem;color:var(--tx);margin:0 0 6px;font-style:italic;background:linear-gradient(135deg,#fff 30%,var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+  .login-sub{font-size:0.8rem;color:var(--mt);margin:0;line-height:1.5;letter-spacing:0.02em;}
+  .login-stats{display:flex;align-items:center;justify-content:center;gap:0;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:14px 10px;margin-bottom:20px;}
+  .login-stat{flex:1;text-align:center;}
+  .login-stat-val{font-size:1.2rem;margin-bottom:3px;}
+  .login-stat-lbl{font-size:0.62rem;color:var(--mt);text-transform:uppercase;letter-spacing:0.1em;}
+  .login-stat-div{width:1px;height:30px;background:rgba(255,255,255,0.07);}
+  .login-mode-row{display:flex;gap:5px;margin-bottom:18px;}
+  .login-mode-btn{flex:1;padding:9px 4px;border:1px solid rgba(255,255,255,0.06);border-radius:10px;background:rgba(255,255,255,0.03);color:var(--mt);font-family:var(--fb);font-size:0.72rem;font-weight:500;cursor:pointer;transition:all .18s;white-space:nowrap;}
+  .login-mode-btn:hover{border-color:rgba(212,168,75,0.3);color:var(--tx);}
+  .login-mode-btn.on{background:rgba(212,168,75,0.1);border-color:rgba(212,168,75,0.45);color:var(--gold);}
+  .login-form{display:flex;flex-direction:column;gap:10px;}
+  .login-field{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:11px;padding:12px 15px;transition:border-color .18s,background .18s;}
+  .login-field.focus{border-color:rgba(212,168,75,0.5);background:rgba(212,168,75,0.04);}
+  .login-field-icon{font-size:0.9rem;color:var(--mt);min-width:16px;text-align:center;transition:color .18s;}
+  .login-field.focus .login-field-icon{color:var(--gold);}
+  .login-field-inp{flex:1;background:transparent;border:none;outline:none;color:var(--tx);font-family:var(--fb);font-size:0.92rem;}
+  .login-field-inp::placeholder{color:rgba(255,255,255,0.2);}
+  .login-hint{font-size:0.74rem;color:var(--mt);margin:0;line-height:1.55;padding:0 2px;}
+  .login-error{display:flex;align-items:center;gap:7px;background:rgba(224,82,82,0.1);border:1px solid rgba(224,82,82,0.25);border-radius:9px;padding:10px 13px;color:#e05252;font-size:0.78rem;}
+  .login-btn{background:linear-gradient(135deg,#c9922a,var(--gold),#c9922a);background-size:200% auto;border:none;border-radius:11px;padding:14px;color:#0e0e0f;font-family:var(--fb);font-weight:700;font-size:0.92rem;cursor:pointer;transition:background-position .4s,opacity .15s,transform .12s;margin-top:4px;letter-spacing:0.02em;}
+  .login-btn:hover:not(:disabled){background-position:right center;transform:translateY(-1px);}
+  .login-btn:active:not(:disabled){transform:translateY(0);}
+  .login-btn:disabled{opacity:0.35;cursor:not-allowed;}
+  .login-warn{margin-top:16px;background:rgba(224,154,48,0.08);border:1px solid rgba(224,154,48,0.2);border-radius:9px;padding:10px 13px;font-size:0.72rem;color:#e09a30;line-height:1.5;text-align:center;}
+
+  /* ══ HEADER USER + LOGOUT ══ */
+  .hdr-user{display:flex;align-items:center;gap:5px;cursor:pointer;padding:5px 9px;border:1px solid var(--bd);border-radius:8px;background:var(--sf2);transition:border-color .15s;}
+  .hdr-user:hover{border-color:var(--gdim);}
+  .hdr-username{font-size:0.75rem;color:var(--tx);font-family:var(--fb);font-weight:500;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .hdr-devbadge{font-size:0.58rem;background:rgba(168,85,247,0.2);color:#a855f7;border:1px solid rgba(168,85,247,0.4);border-radius:4px;padding:1px 5px;font-family:var(--fm);letter-spacing:0.08em;}
+  .hdr-logout{background:var(--sf2);border:1px solid var(--bd);border-radius:8px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--mt);font-size:0.9rem;transition:all .15s;flex-shrink:0;}
+  .hdr-logout:hover{border-color:rgba(224,82,82,0.4);color:#e05252;background:rgba(224,82,82,0.08);}
+
+  /* ══ LEADERBOARD ══ */
+  .lb-wrap{background:var(--sf);border:1px solid var(--bd);border-radius:14px;overflow:hidden;}
+  .lb-header{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--bd);}
+  .lb-title{font-family:var(--fd);font-size:1.15rem;color:var(--tx);font-style:italic;}
+  .lb-refresh{background:var(--sf2);border:1px solid var(--bd);border-radius:7px;padding:5px 12px;color:var(--mt);font-family:var(--fb);font-size:0.76rem;cursor:pointer;transition:all .15s;}
+  .lb-refresh:hover{border-color:var(--gdim);color:var(--gold);}
+  .lb-myrank{padding:10px 18px;background:rgba(212,168,75,0.07);border-bottom:1px solid var(--bd);font-size:0.8rem;color:var(--mt);}
+  .lb-offline,.lb-empty{padding:32px 18px;text-align:center;font-size:0.82rem;color:var(--mt);}
+  .lb-list{display:flex;flex-direction:column;}
+  .lb-row{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--bd);transition:background .12s;}
+  .lb-row:last-child{border-bottom:none;}
+  .lb-row:hover{background:var(--sf2);}
+  .lb-row.me{background:rgba(212,168,75,0.07);}
+  .lb-rank{font-family:var(--fm);font-size:0.9rem;min-width:26px;color:var(--mt);}
+  .lb-name{flex:1;font-size:0.88rem;color:var(--tx);font-weight:500;display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;}
+  .lb-dev-badge{font-size:0.58rem;background:rgba(168,85,247,0.2);color:#a855f7;border:1px solid rgba(168,85,247,0.4);border-radius:4px;padding:1px 5px;font-family:var(--fm);}
+  .lb-you{font-size:0.63rem;background:rgba(212,168,75,0.18);color:var(--gold);border:1px solid rgba(212,168,75,0.3);border-radius:4px;padding:1px 6px;font-family:var(--fm);}
+  .lb-score{font-family:var(--fm);font-size:0.95rem;color:var(--gold);font-weight:600;min-width:32px;text-align:right;}
+  .lb-date{font-size:0.68rem;color:var(--mt);min-width:40px;text-align:right;}
+  .lb-sync{padding:8px 18px;font-size:0.66rem;color:var(--mt);border-top:1px solid var(--bd);text-align:right;}
+
+  /* ══ DEV PANEL ══ */
+  .dev-section{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:16px 18px;margin-bottom:14px;}
+  .dev-section-title{font-size:0.66rem;text-transform:uppercase;letter-spacing:0.14em;color:var(--mt);margin-bottom:12px;}
+  .dev-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;font-size:0.83rem;}
+  .dev-lbl{color:var(--mt);}
+  .dev-val{color:var(--tx);font-family:var(--fm);font-size:0.82rem;}
+  .dev-btn{background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:9px 16px;color:var(--tx);font-family:var(--fb);font-size:0.82rem;cursor:pointer;width:100%;margin-top:6px;transition:all .15s;}
+  .dev-btn:hover{border-color:var(--gdim);color:var(--gold);}
+  .dev-btn-danger{background:rgba(224,82,82,0.1);border:1px solid rgba(224,82,82,0.3);border-radius:8px;padding:9px 16px;color:#e05252;font-family:var(--fb);font-size:0.82rem;cursor:pointer;width:100%;margin-top:6px;transition:all .15s;}
+  .dev-btn-danger:hover{background:rgba(224,82,82,0.18);}
+
+  /* ══ SIGN OUT ══ */
+  .signout-btn{width:100%;padding:10px;background:var(--sf2);border:1px solid var(--bd);border-radius:9px;color:var(--mt);font-family:var(--fb);font-size:0.8rem;cursor:pointer;margin-bottom:18px;transition:all .15s;}
+  .signout-btn:hover{border-color:rgba(224,82,82,0.4);color:#e05252;}
 
 `;
 
@@ -1687,45 +1771,65 @@ function LoginScreen({ onLogin }) {
     onLogin(auth);
   };
 
+  const modeLabels = { login:"Sign In", register:"Register", dev:"Dev Access" };
+  const btnLabel   = loading ? "…" : mode==="dev" ? "Enter Dev Mode" : mode==="register" ? "Create Account" : "Sign In →";
+
   return (
     <div className="login-wrap">
       <style>{CSS}</style>
+      <div className="login-bg">
+        <div className="login-orb orb1"/>
+        <div className="login-orb orb2"/>
+        <div className="login-orb orb3"/>
+      </div>
       <div className="login-card">
-        <div className="login-logo">🎯</div>
-        <h1 className="login-title">FocusOS</h1>
-        <p className="login-sub">Track your productivity. Compete with friends.</p>
+        <div className="login-brand">
+          <div className="login-icon-wrap"><span className="login-icon">🎯</span></div>
+          <h1 className="login-title">FocusOS</h1>
+          <p className="login-sub">Build habits. Track progress. Compete.</p>
+        </div>
 
-        <div className="login-tabs">
-          <button className={`login-tab${mode==="login"?" on":""}`} onClick={()=>{setMode("login");setError("");}}>Sign In</button>
-          <button className={`login-tab${mode==="register"?" on":""}`} onClick={()=>{setMode("register");setError("");}}>Register</button>
-          <button className={`login-tab${mode==="dev"?" on":""}`} onClick={()=>{setMode("dev");setError("");}}>🔧 Dev</button>
+        <div className="login-stats">
+          <div className="login-stat"><div className="login-stat-val">∞</div><div className="login-stat-lbl">Streaks</div></div>
+          <div className="login-stat-div"/>
+          <div className="login-stat"><div className="login-stat-val">🏆</div><div className="login-stat-lbl">Leaderboard</div></div>
+          <div className="login-stat-div"/>
+          <div className="login-stat"><div className="login-stat-val">⚡</div><div className="login-stat-lbl">Challenges</div></div>
+        </div>
+
+        <div className="login-mode-row">
+          {["login","register","dev"].map(m=>(
+            <button key={m} className={`login-mode-btn${mode===m?" on":""}`}
+              onClick={()=>{setMode(m);setError("");}}>
+              {m==="dev"?"🔧":m==="register"?"✨":"👤"} {modeLabels[m]}
+            </button>
+          ))}
         </div>
 
         <div className="login-form">
-          <input className="login-inp" placeholder="Username"
-            value={username} onChange={e=>setUsername(e.target.value)}
-            onKeyDown={e=>e.key==="Enter"&&handle()} autoFocus/>
-
-          {mode === "dev" && (
-            <input className="login-inp" type="password" placeholder="Dev password"
-              value={password} onChange={e=>setPassword(e.target.value)}
-              onKeyDown={e=>e.key==="Enter"&&handle()}/>
+          <div className={`login-field${focused==="user"?" focus":""}`}>
+            <span className="login-field-icon">@</span>
+            <input className="login-field-inp" placeholder="Username"
+              value={username} onChange={e=>setUsername(e.target.value)}
+              onFocus={()=>setFocused("user")} onBlur={()=>setFocused(null)}
+              onKeyDown={e=>e.key==="Enter"&&handle()} autoFocus/>
+          </div>
+          {mode==="dev"&&(
+            <div className={`login-field${focused==="pw"?" focus":""}`}>
+              <span className="login-field-icon">🔑</span>
+              <input className="login-field-inp" type="password" placeholder="Dev password"
+                value={password} onChange={e=>setPassword(e.target.value)}
+                onFocus={()=>setFocused("pw")} onBlur={()=>setFocused(null)}
+                onKeyDown={e=>e.key==="Enter"&&handle()}/>
+            </div>
           )}
-
-          {mode === "login" && (
-            <p className="login-hint">Your username is your identity — just type it to sign back in.</p>
-          )}
-
-          {error && <div className="login-error">{error}</div>}
-
-          <button className="login-btn" onClick={handle} disabled={loading}>
-            {loading ? "…" : mode === "dev" ? "Enter Dev Mode" : mode === "register" ? "Create Account" : "Sign In"}
-          </button>
+          {mode==="login"&&!error&&<p className="login-hint">💡 Your username is your identity — type it to return to your account.</p>}
+          {mode==="register"&&!error&&<p className="login-hint">✨ Pick a unique username. This is how you appear on the leaderboard.</p>}
+          {error&&<div className="login-error"><span>⚠</span> {error}</div>}
+          <button className="login-btn" onClick={handle} disabled={loading||!username.trim()}>{btnLabel}</button>
         </div>
 
-        {!SUPABASE_URL && (
-          <div className="login-warn">⚠ Supabase not configured — leaderboard disabled. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file.</div>
-        )}
+        {!SUPABASE_URL&&<div className="login-warn">⚠ Supabase not configured — leaderboard features disabled.</div>}
       </div>
     </div>
   );
@@ -1964,6 +2068,7 @@ function App({ auth, onLogout }){
               <span className="hdr-username">{auth?.username}</span>
               {auth?.role==="dev"&&<span className="hdr-devbadge">DEV</span>}
             </div>
+            <button className="hdr-logout" onClick={onLogout} title="Sign out">⏏</button>
             <button className="reset-day-btn" onClick={()=>setShowResetConfirm(true)}>
               <span className="rdb-icon">🔄</span>
               <span className="rdb-lbl">Reset</span>
