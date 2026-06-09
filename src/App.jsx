@@ -1,21 +1,61 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-// ── Auth & Supabase Config ────────────────────────────────────────────────
-// Replace these with your actual Supabase project values in .env
+// ── Config ───────────────────────────────────────────────────────────────
 const _env = (typeof import.meta !== "undefined" && import.meta.env) ? import.meta.env : {};
-const SUPABASE_URL  = _env.VITE_SUPABASE_URL  || "";
-const SUPABASE_KEY  = _env.VITE_SUPABASE_ANON_KEY || "";
+const SUPABASE_URL  = _env.VITE_SUPABASE_URL  || "https://hfgqmlpvcixxjqyqhxfh.supabase.co/rest/v1/";
+const SUPABASE_KEY  = _env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhmZ3FtbHB2Y2l4eGpxeXFoeGZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5NTIwNjcsImV4cCI6MjA5NjUyODA2N30.oQ8ajczjwEijb4XpRNkcXYkdthfpLyb7xL3E_o_-qJ8";
 const DEV_PASSWORD  = _env.VITE_DEV_PASSWORD  || "focusdev2025";
+const AUTH_URL      = SUPABASE_URL ? SUPABASE_URL.replace(/\/$/, "") : "";
 
-// Lightweight Supabase REST helper — no SDK needed
-async function sbFetch(path, opts = {}) {
-  if (!SUPABASE_URL || !SUPABASE_KEY) return null;
+// ── Supabase Auth API ─────────────────────────────────────────────────────
+async function sbAuthFetch(path, body) {
+  if (!AUTH_URL || !SUPABASE_KEY) return { error: "Supabase not configured" };
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    const res = await fetch(`${AUTH_URL}/auth/v1/${path}`, {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) return { error: data.error_description || data.msg || "Auth error" };
+    return { data };
+  } catch (e) { return { error: e.message }; }
+}
+
+// Register: uses email = username@focusos.app (fake domain — Supabase just needs valid format)
+async function sbRegister(username, password) {
+  return sbAuthFetch("signup", {
+    email: `${username.toLowerCase()}@focusos.app`,
+    password,
+    data: { username },
+  });
+}
+
+// Login
+async function sbLogin(username, password) {
+  return sbAuthFetch("token?grant_type=password", {
+    email: `${username.toLowerCase()}@focusos.app`,
+    password,
+  });
+}
+
+// Refresh session
+async function sbRefresh(refresh_token) {
+  return sbAuthFetch("token?grant_type=refresh_token", { refresh_token });
+}
+
+// ── Leaderboard REST ──────────────────────────────────────────────────────
+async function sbFetch(path, opts = {}, token = null) {
+  if (!AUTH_URL || !SUPABASE_KEY) return null;
+  try {
+    const res = await fetch(`${AUTH_URL}/rest/v1/${path}`, {
       ...opts,
       headers: {
         "apikey": SUPABASE_KEY,
-        "Authorization": `Bearer ${SUPABASE_KEY}`,
+        "Authorization": `Bearer ${token || SUPABASE_KEY}`,
         "Content-Type": "application/json",
         "Prefer": opts.prefer || "return=representation",
         ...(opts.headers || {}),
@@ -27,19 +67,28 @@ async function sbFetch(path, opts = {}) {
   } catch { return null; }
 }
 
-async function lbUpsert(username, score, isdev) {
+async function lbUpsert(username, score, isdev, token, userId) {
   return sbFetch("leaderboard?on_conflict=username", {
     method: "POST",
     prefer: "resolution=merge-duplicates,return=representation",
-    body: JSON.stringify({ username, score, is_dev: !!isdev, updated_at: new Date().toISOString() }),
-  });
+    body: JSON.stringify({
+      username,
+      score,
+      is_dev: !!isdev,
+      user_id: userId || null,
+      updated_at: new Date().toISOString(),
+    }),
+  }, token);
 }
 
-async function lbFetch() {
-  return sbFetch("leaderboard?order=score.desc&limit=20&select=username,score,is_dev,updated_at");
+async function lbFetch(token) {
+  return sbFetch(
+    "leaderboard?order=score.desc&limit=20&select=username,score,is_dev,updated_at",
+    {}, token
+  );
 }
 
-// ── Auth helpers ──────────────────────────────────────────────────────────
+// ── Session persistence ───────────────────────────────────────────────────
 function loadAuth() {
   try { return JSON.parse(localStorage.getItem("focusos_auth") || "null"); } catch { return null; }
 }
@@ -805,6 +854,8 @@ const CSS = `
   .login-btn:hover:not(:disabled){background-position:right center;transform:translateY(-1px);}
   .login-btn:active:not(:disabled){transform:translateY(0);}
   .login-btn:disabled{opacity:0.35;cursor:not-allowed;}
+  .login-pw-toggle{background:none;border:none;cursor:pointer;font-size:0.85rem;padding:0 2px;opacity:0.6;transition:opacity .15s;}
+  .login-pw-toggle:hover{opacity:1;}
   .login-warn{margin-top:16px;background:rgba(224,154,48,0.08);border:1px solid rgba(224,154,48,0.2);border-radius:9px;padding:10px 13px;font-size:0.72rem;color:#e09a30;line-height:1.5;text-align:center;}
 
   /* ══ HEADER USER + LOGOUT ══ */
@@ -1730,47 +1781,53 @@ function NutritionTab({ tk }){
 
 // ── Login Screen ──────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
-  const [mode, setMode]         = useState("login"); // login | register | dev
+  const [mode, setMode]         = useState("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError]       = useState("");
-  const [loading, setLoading]   = useState(false);
-  const [focused, setFocused]   = useState(null);
+  const [confirm,  setConfirm]  = useState("");
+  const [error,    setError]    = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [focused,  setFocused]  = useState(null);
+  const [showPw,   setShowPw]   = useState(false);
 
-  const handle = async (e) => {
-    e?.preventDefault();
-    const u = username.trim();
-    if (!u) { setError("Please enter a username."); return; }
+  const handle = async () => {
+    const u = username.trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+    if (!u)        { setError("Username can only contain letters, numbers and underscores."); return; }
+    if (!password) { setError("Please enter a password."); return; }
 
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
 
+    // ── Dev login (local, no Supabase) ──
     if (mode === "dev") {
-      if (password !== DEV_PASSWORD) { setError("Wrong dev password."); setLoading(false); return; }
-      const auth = { username: u, role: "dev", loginAt: Date.now() };
-      saveAuth(auth);
-      onLogin(auth);
-      return;
+      if (password !== DEV_PASSWORD) { setError("Incorrect dev password."); setLoading(false); return; }
+      const auth = { username: u, role: "dev", loginAt: Date.now(), token: null, userId: null };
+      saveAuth(auth); setLoading(false); onLogin(auth); return;
     }
 
-    // Regular user — check/create via Supabase
-    if (SUPABASE_URL && SUPABASE_KEY) {
-      if (mode === "register") {
-        // Check if username taken
-        const existing = await sbFetch(`leaderboard?username=eq.${encodeURIComponent(u)}&select=username`);
-        if (existing && existing.length > 0) {
-          setError("Username already taken — pick another.");
-          setLoading(false);
-          return;
-        }
-        await lbUpsert(u, 0, false);
-      }
-      // For login just trust the username (no passwords for regular users, name is identity)
+    // ── Register ──
+    if (mode === "register") {
+      if (password.length < 6)    { setError("Password must be at least 6 characters."); setLoading(false); return; }
+      if (password !== confirm)   { setError("Passwords do not match."); setLoading(false); return; }
+      const { data, error: err } = await sbRegister(u, password);
+      if (err) { setError(err); setLoading(false); return; }
+      const token  = data?.access_token  || null;
+      const userId = data?.user?.id      || null;
+      const meta   = data?.user?.user_metadata || {};
+      const displayName = meta.username || u;
+      if (token) await lbUpsert(displayName, 0, false, token, userId);
+      const auth = { username: displayName, role: "user", token, refreshToken: data?.refresh_token, userId, loginAt: Date.now() };
+      saveAuth(auth); setLoading(false); onLogin(auth); return;
     }
 
-    const auth = { username: u, role: "user", loginAt: Date.now() };
-    saveAuth(auth);
-    onLogin(auth);
+    // ── Login ──
+    const { data, error: err } = await sbLogin(u, password);
+    if (err) { setError(err === "Invalid login credentials" ? "Wrong username or password." : err); setLoading(false); return; }
+    const token  = data?.access_token  || null;
+    const userId = data?.user?.id      || null;
+    const meta   = data?.user?.user_metadata || {};
+    const displayName = meta.username || u;
+    const auth = { username: displayName, role: "user", token, refreshToken: data?.refresh_token, userId, loginAt: Date.now() };
+    saveAuth(auth); setLoading(false); onLogin(auth);
   };
 
   const modeLabels = { login:"Sign In", register:"Register", dev:"Dev Access" };
@@ -1801,36 +1858,65 @@ function LoginScreen({ onLogin }) {
         <div className="login-mode-row">
           {["login","register","dev"].map(m=>(
             <button key={m} className={`login-mode-btn${mode===m?" on":""}`}
-              onClick={()=>{setMode(m);setError("");}}>
+              onClick={()=>{setMode(m);setError("");setConfirm("");}}>
               {m==="dev"?"🔧":m==="register"?"✨":"👤"} {modeLabels[m]}
             </button>
           ))}
         </div>
 
         <div className="login-form">
+          {/* Username */}
           <div className={`login-field${focused==="user"?" focus":""}`}>
             <span className="login-field-icon">@</span>
             <input className="login-field-inp" placeholder="Username"
-              value={username} onChange={e=>setUsername(e.target.value)}
+              value={username} onChange={e=>setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,""))}
               onFocus={()=>setFocused("user")} onBlur={()=>setFocused(null)}
-              onKeyDown={e=>e.key==="Enter"&&handle()} autoFocus/>
+              onKeyDown={e=>e.key==="Enter"&&handle()} autoFocus autoCapitalize="none"/>
           </div>
-          {mode==="dev"&&(
-            <div className={`login-field${focused==="pw"?" focus":""}`}>
-              <span className="login-field-icon">🔑</span>
-              <input className="login-field-inp" type="password" placeholder="Dev password"
-                value={password} onChange={e=>setPassword(e.target.value)}
-                onFocus={()=>setFocused("pw")} onBlur={()=>setFocused(null)}
+
+          {/* Password */}
+          <div className={`login-field${focused==="pw"?" focus":""}`}>
+            <span className="login-field-icon">🔑</span>
+            <input className="login-field-inp" type={showPw?"text":"password"}
+              placeholder={mode==="dev"?"Dev password":"Password (min 6 chars)"}
+              value={password} onChange={e=>setPassword(e.target.value)}
+              onFocus={()=>setFocused("pw")} onBlur={()=>setFocused(null)}
+              onKeyDown={e=>e.key==="Enter"&&handle()}/>
+            <button className="login-pw-toggle" onClick={()=>setShowPw(s=>!s)} tabIndex={-1}>
+              {showPw?"🙈":"👁"}
+            </button>
+          </div>
+
+          {/* Confirm password (register only) */}
+          {mode==="register"&&(
+            <div className={`login-field${focused==="cf"?" focus":""}`}>
+              <span className="login-field-icon">✓</span>
+              <input className="login-field-inp" type={showPw?"text":"password"}
+                placeholder="Confirm password"
+                value={confirm} onChange={e=>setConfirm(e.target.value)}
+                onFocus={()=>setFocused("cf")} onBlur={()=>setFocused(null)}
                 onKeyDown={e=>e.key==="Enter"&&handle()}/>
             </div>
           )}
-          {mode==="login"&&!error&&<p className="login-hint">💡 Your username is your identity — type it to return to your account.</p>}
-          {mode==="register"&&!error&&<p className="login-hint">✨ Pick a unique username. This is how you appear on the leaderboard.</p>}
+
+          {mode==="login"&&!error&&(
+            <p className="login-hint">💡 Use your username and password to sign in.</p>
+          )}
+          {mode==="register"&&!error&&(
+            <p className="login-hint">✨ Username: letters, numbers, underscores only.</p>
+          )}
+
           {error&&<div className="login-error"><span>⚠</span> {error}</div>}
-          <button className="login-btn" onClick={handle} disabled={loading||!username.trim()}>{btnLabel}</button>
+
+          <button className="login-btn" onClick={handle}
+            disabled={loading||!username.trim()||!password}>
+            {btnLabel}
+          </button>
         </div>
 
-        {!SUPABASE_URL&&<div className="login-warn">⚠ Supabase not configured — leaderboard features disabled.</div>}
+        {!SUPABASE_URL&&(
+          <div className="login-warn">⚠ Supabase not configured — leaderboard disabled.</div>
+        )}
       </div>
     </div>
   );
@@ -1844,20 +1930,20 @@ function LeaderboardPanel({ currentUser, currentScore }) {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const data = await lbFetch();
+    const data = await lbFetch(currentUser?.token);
     if (data) { setRows(data); setLastSync(new Date()); }
     setLoading(false);
-  }, []);
+  }, [currentUser?.token]);
 
   // Push current user score on mount + when score changes
   useEffect(() => {
     if (currentUser && SUPABASE_URL) {
-      lbUpsert(currentUser.username, currentScore, currentUser.role === "dev")
+      lbUpsert(currentUser.username, currentScore, currentUser.role==="dev", currentUser.token, currentUser.userId)
         .then(() => refresh());
     } else {
       refresh();
     }
-  }, [currentScore]);
+  }, [currentScore, refresh]);
 
   const fmt = iso => {
     if (!iso) return "";
@@ -2027,6 +2113,7 @@ function App({ auth, onLogout }){
     setTasks(t=>t.map(x=>({...x,done:false})));
     setHabitDone({});
     setPomDone(0);resetPom();
+    setChallengeBonus(0);
     ["trk_water","trk_act","trk_read","trk_med","trk_sleep","trk_steps","trk_mood"].forEach(k=>save(`${k}_${tk}`,"[]"));
     save(`trk_books_${tk}`,"0");
     setResetKey(k=>k+1);
@@ -2055,6 +2142,7 @@ function App({ auth, onLogout }){
               <li>All tasks unchecked (list kept)</li>
               <li>All habit completions cleared</li>
               <li>Pomodoro count reset to 0</li>
+              <li>Challenge bonus reset to 0</li>
               <li>Today's tracker entries cleared</li>
             </ul>
             <div className="confirm-btns">
@@ -2255,7 +2343,7 @@ function App({ auth, onLogout }){
         )}
 
         {/* ══ CHALLENGES ══ */}
-        {tab==="challenges"&&<ChallengesTab onBonusEarned={pts=>{setChallengeBonus(b=>(typeof b==="number"?b:0)+pts);}}/>}
+        {tab==="challenges"&&<ChallengesTab onBonusEarned={pts=>{setChallengeBonus(b=>(typeof b==="number"?b:0)+pts); lbUpsert(auth.username, score, auth.role==="dev", auth.token, auth.userId);}}/>}
 
         {/* ══ LEADERBOARD ══ */}
         {tab==="board"&&<LeaderboardPanel currentUser={auth} currentScore={score}/>}
@@ -2287,7 +2375,7 @@ function App({ auth, onLogout }){
               <div className="dev-section-title">Supabase</div>
               <div className="dev-row"><span className="dev-lbl">URL configured</span><span className="dev-val">{SUPABASE_URL?"✅ Yes":"❌ No"}</span></div>
               <div className="dev-row"><span className="dev-lbl">Key configured</span><span className="dev-val">{SUPABASE_KEY?"✅ Yes":"❌ No"}</span></div>
-              <button className="dev-btn" onClick={()=>lbUpsert(auth.username,score,true).then(()=>alert("Score pushed to leaderboard!"))}>Push Score Now</button>
+              <button className="dev-btn" onClick={()=>lbUpsert(auth.username,score,true,auth.token,auth.userId).then(()=>alert("Score pushed to leaderboard!"))}>Push Score Now</button>
             </div>
           </div>
         )}
