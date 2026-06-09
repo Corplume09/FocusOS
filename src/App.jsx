@@ -1776,7 +1776,6 @@ function LoginScreen({ onLogin }) {
 
   return (
     <div className="login-wrap">
-      <style>{CSS}</style>
       <div className="login-bg">
         <div className="login-orb orb1"/>
         <div className="login-orb orb2"/>
@@ -1925,9 +1924,16 @@ const HOME_MSGS = [
 
 function AppShell() {
   const [auth, setAuth] = useState(() => loadAuth());
-
-  if (!auth) return <LoginScreen onLogin={a => setAuth(a)}/>;
-  return <App auth={auth} onLogout={() => { clearAuth(); setAuth(null); }}/>;
+  const logout = () => { clearAuth(); setAuth(null); };
+  return (
+    <>
+      <style>{CSS}</style>
+      {!auth
+        ? <LoginScreen onLogin={a => setAuth(a)}/>
+        : <App auth={auth} onLogout={logout}/>
+      }
+    </>
+  );
 }
 
 export default AppShell;
