@@ -2,9 +2,10 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 // ── Auth & Supabase Config ────────────────────────────────────────────────
 // Replace these with your actual Supabase project values in .env
-const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL  || "";
-const SUPABASE_KEY  = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-const DEV_PASSWORD  = import.meta.env.VITE_DEV_PASSWORD  || "focusdev2025";
+const _env = (typeof import.meta !== "undefined" && import.meta.env) ? import.meta.env : {};
+const SUPABASE_URL  = _env.VITE_SUPABASE_URL  || "";
+const SUPABASE_KEY  = _env.VITE_SUPABASE_ANON_KEY || "";
+const DEV_PASSWORD  = _env.VITE_DEV_PASSWORD  || "focusdev2025";
 
 // Lightweight Supabase REST helper — no SDK needed
 async function sbFetch(path, opts = {}) {
