@@ -293,12 +293,11 @@ const CHALLENGE_POOL = [
 
 
 // ── Challenges Tab ────────────────────────────────────────────────────────
-function ChallengesTab({ onBonusEarned }) {
+function ChallengesTab({ onBonusEarned, bonusTotal }) {
   const tk = todayKey();
   const uk = useUK();
   const [active, setActive]       = usePersist(`${uk}_challenge_active_${tk}`, null);
   const [completed, setCompleted] = usePersist(`${uk}_challenge_done_${tk}`, []);
-  const [bonusTotal, setBonusTotal] = usePersist(`${uk}_challenge_bonus_${tk}`, 0);
 
   const [pickMode, setPickMode]           = useState(false);
   const [customText, setCustomText]       = useState("");
@@ -316,7 +315,6 @@ function ChallengesTab({ onBonusEarned }) {
   const completeChallenge = () => {
     if (!active) return;
     setCompleted(d => [...(Array.isArray(d)?d:[]), { ...active, completedAt: Date.now(), earnedPts: active.bonusPts }]);
-    setBonusTotal(t => (typeof t==="number"?t:0) + active.bonusPts);
     onBonusEarned(active.bonusPts);
     setActive(null);
   };
@@ -502,12 +500,12 @@ const CSS = `
   .confirm-ok:hover{opacity:0.85;}
 
   /* Nav */
-  .nav{display:flex;gap:4px;margin-bottom:20px;background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:4px;overflow-x:auto;scrollbar-width:none;}
+  .nav{display:flex;gap:3px;margin-bottom:20px;background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:4px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
   .nav::-webkit-scrollbar{display:none;}
-  .nb{flex:1;min-width:0;padding:7px 4px 6px;border:none;border-radius:8px;background:transparent;color:var(--mt);font-family:var(--fb);font-size:0.62rem;font-weight:500;cursor:pointer;transition:all 0.18s;white-space:nowrap;text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1;}
-  .nb-ico{font-size:1.05rem;line-height:1;}
-  .nb-lbl{font-size:0.58rem;text-transform:uppercase;letter-spacing:0.06em;opacity:0.8;}
-  .nb.on{background:var(--sf2);color:var(--gold);border:1px solid var(--bdg,var(--gdim));}
+  .nb{flex:0 0 auto;width:54px;padding:7px 2px 6px;border:none;border-radius:8px;background:transparent;color:var(--mt);font-family:var(--fb);font-weight:500;cursor:pointer;transition:all 0.18s;text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1;}
+  .nb-ico{font-size:1.1rem;line-height:1;}
+  .nb-lbl{font-size:0.52rem;text-transform:uppercase;letter-spacing:0.04em;opacity:0.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52px;}
+  .nb.on{background:var(--sf2);color:var(--gold);border:1px solid var(--gdim);}
   .nb.on .nb-lbl{opacity:1;}
   .nb:hover:not(.on){color:var(--tx);background:rgba(255,255,255,0.03);}
 
@@ -2348,7 +2346,10 @@ function App({ auth, onLogout }){
               {[...tasks].sort((a,b)=>{
                 if(a.done!==b.done)return a.done?1:-1;
                 return ({high:0,medium:1,low:2})[a.priority]-({high:0,medium:1,low:2})[b.priority];
-              }).map(t=>(
+              }).map(t=>{
+                // Each task's actual score contribution = its weight / total weight * 60
+                const contrib = totalWeight>0 ? Math.round((PRIO_PTS[t.priority]/totalWeight)*60) : 0;
+                return (
                 <div key={t.id} className={`titem${t.done?" dn":""}`}>
                   <div className={`tcb${t.done?" chk":""}`} onClick={()=>toggleTask(t.id)}>
                     {t.done&&<span style={{color:"#0e0e0f",fontSize:"0.7rem",fontWeight:"bold"}}>✓</span>}
@@ -2356,11 +2357,12 @@ function App({ auth, onLogout }){
                   <div className="pdot" style={{background:PRIORITIES[t.priority].color}}/>
                   <div className={`ttx${t.done?" x":""}`}>{t.text}</div>
                   <span style={{fontSize:"0.68rem",fontFamily:"var(--fm)",color:t.done?"var(--mt)":PRIORITIES[t.priority].color,flexShrink:0}}>
-                    {t.done?"✓ ":""}{PRIO_PTS[t.priority]}pt{PRIO_PTS[t.priority]!==1?"s":""}
+                    +{contrib}pt{contrib!==1?"s":""}
                   </span>
                   <button className="dbtn" onClick={()=>delTask(t.id)}>×</button>
                 </div>
-              ))}
+                );
+              })}
             </div>
             {tasks.length>0&&<div style={{marginTop:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div style={{fontSize:"0.71rem",color:"var(--mt)",fontFamily:"var(--fm)"}}>{tasksDone}/{tasks.length} complete</div>
@@ -2477,7 +2479,10 @@ function App({ auth, onLogout }){
         )}
 
         {/* ══ CHALLENGES ══ */}
-        {tab==="challenges"&&<ChallengesTab onBonusEarned={pts=>{setChallengeBonus(b=>(typeof b==="number"?b:0)+pts); lbUpsert(auth.username, score, auth.role==="dev", auth.token, auth.userId);}}/>}
+        {tab==="challenges"&&<ChallengesTab
+          bonusTotal={safeBonus}
+          onBonusEarned={pts=>{setChallengeBonus(b=>(typeof b==="number"?b:0)+pts); lbUpsert(auth.username, score, auth.role==="dev", auth.token, auth.userId);}}
+        />}
 
         {/* ══ LEADERBOARD ══ */}
         {tab==="board"&&<LeaderboardPanel currentUser={auth} currentScore={score}/>}
