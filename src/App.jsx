@@ -499,12 +499,14 @@ const CSS = `
   .confirm-ok{background:var(--red);border:none;border-radius:7px;padding:8px 18px;color:#fff;font-family:var(--fb);font-weight:600;font-size:0.8rem;cursor:pointer;transition:opacity 0.15s;}
   .confirm-ok:hover{opacity:0.85;}
 
-  /* Nav */
-  .nav{display:flex;gap:3px;margin-bottom:20px;background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:4px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
-  .nav::-webkit-scrollbar{display:none;}
-  .nb{flex:0 0 auto;width:54px;padding:7px 2px 6px;border:none;border-radius:8px;background:transparent;color:var(--mt);font-family:var(--fb);font-weight:500;cursor:pointer;transition:all 0.18s;text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1;}
+  /* Nav — two connected rows */
+  .nav-wrap{margin-bottom:20px;}
+  .nav-row{display:grid;gap:3px;background:var(--sf);border:1px solid var(--bd);padding:3px;}
+  .nav-row.top{border-radius:10px 10px 0 0;border-bottom:none;grid-template-columns:repeat(4,1fr);}
+  .nav-row.bot{border-radius:0 0 10px 10px;grid-template-columns:repeat(var(--bot-cols,4),1fr);}
+  .nb{padding:8px 4px 7px;border:none;border-radius:7px;background:transparent;color:var(--mt);font-family:var(--fb);font-weight:500;cursor:pointer;transition:all 0.18s;text-align:center;display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1;width:100%;}
   .nb-ico{font-size:1.1rem;line-height:1;}
-  .nb-lbl{font-size:0.52rem;text-transform:uppercase;letter-spacing:0.04em;opacity:0.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52px;}
+  .nb-lbl{font-size:0.55rem;text-transform:uppercase;letter-spacing:0.05em;opacity:0.75;white-space:nowrap;}
   .nb.on{background:var(--sf2);color:var(--gold);border:1px solid var(--gdim);}
   .nb.on .nb-lbl{opacity:1;}
   .nb:hover:not(.on){color:var(--tx);background:rgba(255,255,255,0.03);}
@@ -2305,13 +2307,23 @@ function App({ auth, onLogout }){
           </div>
         </div>
 
-        <div className="nav">
-          {TABS.map(([k,ico,lbl])=>(
-            <button key={k} className={`nb${tab===k?" on":""}`} onClick={()=>setTab(k)}>
-              <span className="nb-ico">{ico}</span>
-              <span className="nb-lbl">{lbl}</span>
-            </button>
-          ))}
+        <div className="nav-wrap">
+          <div className="nav-row top">
+            {TABS.slice(0,4).map(([k,ico,lbl])=>(
+              <button key={k} className={`nb${tab===k?" on":""}`} onClick={()=>setTab(k)}>
+                <span className="nb-ico">{ico}</span>
+                <span className="nb-lbl">{lbl}</span>
+              </button>
+            ))}
+          </div>
+          <div className="nav-row bot" style={{"--bot-cols":TABS.slice(4).length}}>
+            {TABS.slice(4).map(([k,ico,lbl])=>(
+              <button key={k} className={`nb${tab===k?" on":""}`} onClick={()=>setTab(k)}>
+                <span className="nb-ico">{ico}</span>
+                <span className="nb-lbl">{lbl}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* ══ HOME ══ */}
