@@ -502,11 +502,14 @@ const CSS = `
   .confirm-ok:hover{opacity:0.85;}
 
   /* Nav */
-  .nav{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin-bottom:20px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:3px;}
-  .nav-row2{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:-14px;margin-bottom:20px;background:var(--sf);border:1px solid var(--bd);border-top:none;border-radius:0 0 10px 10px;padding:0 3px 3px;}
-  .nb{padding:8px 4px;border:none;border-radius:7px;background:transparent;color:var(--mt);font-family:var(--fb);font-size:0.73rem;font-weight:500;cursor:pointer;transition:all 0.18s;white-space:nowrap;text-align:center;width:100%;}
-  .nb.on{background:var(--sf2);color:var(--tx);border:1px solid var(--bd);}
-  .nb:hover:not(.on){color:var(--tx);}
+  .nav{display:flex;gap:4px;margin-bottom:20px;background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:4px;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar{display:none;}
+  .nb{flex:1;min-width:0;padding:7px 4px 6px;border:none;border-radius:8px;background:transparent;color:var(--mt);font-family:var(--fb);font-size:0.62rem;font-weight:500;cursor:pointer;transition:all 0.18s;white-space:nowrap;text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1;}
+  .nb-ico{font-size:1.05rem;line-height:1;}
+  .nb-lbl{font-size:0.58rem;text-transform:uppercase;letter-spacing:0.06em;opacity:0.8;}
+  .nb.on{background:var(--sf2);color:var(--gold);border:1px solid var(--bdg,var(--gdim));}
+  .nb.on .nb-lbl{opacity:1;}
+  .nb:hover:not(.on){color:var(--tx);background:rgba(255,255,255,0.03);}
 
   /* Panel */
   .prow{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:18px;}
@@ -909,47 +912,21 @@ const CSS = `
 
 `;
 
-// ── Graph score decay engine ──────────────────────────────────────────────
-// Takes the raw score history and fills in missed days with compounding decay.
-// Miss day 1: lose 4pts. Miss day 2: lose 8pts. Miss day 3: lose 12pts etc.
-// Low scores (< 40) decay faster. High scores are stickier (more to protect).
-function buildGraphLine(safeHistory, todayDate, liveScore, SHOW) {
-  // Build a map of date → real score
+// ── Compound score engine ─────────────────────────────────────────────────
+// Each day: compound += rawScore - penalty, where penalty = max(0, 100 - rawScore)
+// So a 100 day = +100. A 90 day = +90 - 10 = net +80. A 0 day = -100 (floored at 0).
+function buildCompoundHistory(safeHistory, todayDate, liveScore) {
   const realMap = {};
   safeHistory.forEach(e => { realMap[e.date] = e.score; });
-  realMap[todayDate] = liveScore; // always use live score for today
-
-  // Generate last SHOW days
-  const days = Array.from({length: SHOW}, (_, i) => {
-    const d = new Date(todayDate + "T12:00:00");
-    d.setDate(d.getDate() - (SHOW - 1 - i));
-    return d.toISOString().slice(0, 10);
-  });
-
-  // Walk forward — score decays on missed days.
-  // Floor is 5 until 10 consecutive misses, then allows 0.
+  realMap[todayDate] = liveScore;
+  const sorted = Object.keys(realMap).sort();
+  let compound = 0;
   const result = [];
-  let carried = null;
-  let missStreak = 0;
-
-  for (let i = 0; i < days.length; i++) {
-    const date = days[i];
-    const real = realMap[date];
-
-    if (real !== undefined) {
-      missStreak = 0;
-      carried = real;
-      result.push({ date, score: real, missed: false });
-    } else if (carried === null) {
-      result.push({ date, score: null, missed: false });
-    } else {
-      missStreak++;
-      const decay = 4 * missStreak;            // 4, 8, 12, 16…
-      const extra = carried < 40 ? 2 : 0;     // low scores decay slightly faster
-      const floor = missStreak >= 10 ? 0 : 5; // only hits 0 after 10 consecutive misses
-      carried = Math.max(floor, carried - decay - extra);
-      result.push({ date, score: Math.round(carried), missed: true });
-    }
+  for (const date of sorted) {
+    const raw = realMap[date];
+    const penalty = Math.max(0, 100 - raw);
+    compound = Math.max(0, compound + raw - penalty);
+    result.push({ date, raw, compound });
   }
   return result;
 }
@@ -958,9 +935,8 @@ function buildGraphLine(safeHistory, todayDate, liveScore, SHOW) {
 function WiiProgressGraph({ score }) {
   const uk=useUK();
   const [history, setHistory] = usePersist(`${uk}_score_history_v3`, []);
-  const [animPct, setAnimPct] = useState(0); // 0→1 draw animation
+  const [animPct, setAnimPct] = useState(0);
 
-  // Write today's score
   useEffect(() => {
     const today = todayKey();
     setHistory(h => {
@@ -973,15 +949,13 @@ function WiiProgressGraph({ score }) {
     });
   }, [score]);
 
-  // Animate line draw on mount / score change
   useEffect(() => {
     setAnimPct(0);
     let start = null;
-    const dur = 900; // ms
+    const dur = 900;
     const tick = ts => {
       if (!start) start = ts;
       const p = Math.min((ts - start) / dur, 1);
-      // ease out cubic
       setAnimPct(1 - Math.pow(1 - p, 3));
       if (p < 1) requestAnimationFrame(tick);
     };
@@ -993,18 +967,31 @@ function WiiProgressGraph({ score }) {
   const today = todayKey();
   const SHOW = 20;
 
-  // Build the full 20-day line including decayed missed days
-  const graphPts = buildGraphLine(safeHistory, today, score, SHOW);
+  // Compound history
+  const compound = buildCompoundHistory(safeHistory, today, score);
+  const todayCompound = compound.length > 0 ? compound[compound.length-1].compound : 0;
+  const prevCompound  = compound.length > 1  ? compound[compound.length-2].compound : null;
+  const compoundDelta = prevCompound !== null ? Math.round(todayCompound - prevCompound) : null;
+
+  // Map compound values by date for graph
+  const compoundMap = {};
+  compound.forEach(e => { compoundMap[e.date] = e.compound; });
+
+  // Last SHOW days
+  const days = Array.from({length: SHOW}, (_, i) => {
+    const d = new Date(today + "T12:00:00");
+    d.setDate(d.getDate() - (SHOW - 1 - i));
+    return d.toISOString().slice(0, 10);
+  });
+  const graphPts = days.map(date => ({
+    date,
+    score: compoundMap[date] !== undefined ? compoundMap[date] : null,
+  }));
 
   // Stats
-  const realDays   = safeHistory.filter(e => e.score !== undefined);
-  const prev       = safeHistory.length > 1 ? safeHistory[safeHistory.length - 2] : null;
-  const delta      = prev ? score - prev.score : null;
-  const rank       = score>=80?"PRO":score>=60?"ADV":score>=40?"INT":"BEG";
-  const rankColor  = score>=80?"#fbbf24":score>=60?"#60a5fa":score>=40?"#4ade80":"#f87171";
-  const avgScore   = realDays.length > 0
-    ? Math.round(realDays.reduce((s,e)=>s+e.score,0)/realDays.length)
-    : score;
+  const realDays = safeHistory.filter(e => e.score !== undefined);
+  const avgScore = realDays.length > 0
+    ? Math.round(realDays.reduce((s,e)=>s+e.score,0)/realDays.length) : score;
   const streak = (()=>{
     let s = 0;
     const sorted = [...safeHistory].sort((a,b)=>a.date<b.date?1:-1);
@@ -1014,22 +1001,23 @@ function WiiProgressGraph({ score }) {
     return s;
   })();
 
-  // SVG layout
-  const W=380, H=170, PL=36, PR=14, PT=18, PB=28;
+  const rank      = todayCompound>=500?"PRO":todayCompound>=200?"ADV":todayCompound>=50?"INT":"BEG";
+  const rankColor = todayCompound>=500?"#fbbf24":todayCompound>=200?"#60a5fa":todayCompound>=50?"#4ade80":"#f87171";
+
+  // SVG — y-axis scales to compound total
+  const maxY = Math.max(200, todayCompound * 1.25);
+  const W=380, H=170, PL=42, PR=14, PT=18, PB=28;
   const gW=W-PL-PR, gH=H-PT-PB;
-  const yS = v => PT + gH - (Math.max(0, Math.min(v, 130)) / 130) * gH; // 130 ceiling for bonus scores
+  const yS = v => PT + gH - (Math.max(0, Math.min(v, maxY)) / maxY) * gH;
   const xS = i => PL + (i / (SHOW - 1)) * gW;
 
-  // All points with valid scores (including decayed)
   const allValid = graphPts
     .map((p, i) => p.score !== null ? { ...p, x: xS(i), y: yS(p.score), i } : null)
     .filter(Boolean);
 
-  // Animate: only show points up to animPct of the way through
   const visibleCount = Math.max(1, Math.round(allValid.length * animPct));
   const visible = allValid.slice(0, visibleCount);
 
-  // Build paths
   const lineStart = { x: PL, y: yS(0) };
   const allForPath = [lineStart, ...visible];
   const linePath = allForPath.map((p,i)=>`${i===0?"M":"L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
@@ -1038,21 +1026,22 @@ function WiiProgressGraph({ score }) {
     : null;
 
   const latest  = visible.length > 0 ? visible[visible.length - 1] : null;
-  const proY    = yS(80);
-  const bubbleW = 58, bubbleH = 22;
+  const bubbleW = 72, bubbleH = 22;
   const bx = latest ? Math.min(Math.max(latest.x - bubbleW/2, PL), W-PR-bubbleW) : PL+10;
   const by = latest ? Math.max(latest.y - bubbleH - 12, PT+2) : PT+2;
 
-  // Line colour: green when trending up, amber flat, red trending down
-  const trendColor = delta === null ? "#1850c0"
-    : delta > 3  ? "#1a9050"
-    : delta < -3 ? "#c03030"
+  const trendColor = compoundDelta === null ? "#1850c0"
+    : compoundDelta > 0 ? "#1a9050"
+    : compoundDelta < 0 ? "#c03030"
     : "#1850c0";
+
+  // Y-axis labels (round numbers)
+  const yLabels = [0, Math.round(maxY*0.25), Math.round(maxY*0.5), Math.round(maxY*0.75), Math.round(maxY)];
 
   return (
     <div className="wii-wrap">
       <div className="wii-header">
-        <div className="wii-title">Skill Level</div>
+        <div className="wii-title">Lifetime Score</div>
         <div className="wii-rank" style={{color:rankColor,borderColor:`${rankColor}55`}}>{rank}</div>
       </div>
 
@@ -1069,53 +1058,35 @@ function WiiProgressGraph({ score }) {
           </clipPath>
         </defs>
 
-        {/* Chart bg */}
         <rect x={PL} y={PT} width={gW} height={gH} fill="rgba(200,220,255,0.22)"/>
 
-        {/* Grid lines */}
-        {[0,25,50,75,100].map(v=>(
-          <line key={v} x1={PL} y1={yS(v)} x2={W-PR} y2={yS(v)}
-            stroke={v===0||v===100?"rgba(80,120,190,0.4)":"rgba(140,170,220,0.25)"}
-            strokeWidth={v===0||v===100?"1":"0.7"}/>
+        {/* Grid lines + y labels */}
+        {yLabels.map(v=>(
+          <g key={v}>
+            <line x1={PL} y1={yS(v)} x2={W-PR} y2={yS(v)}
+              stroke={v===0?"rgba(80,120,190,0.4)":"rgba(140,170,220,0.25)"}
+              strokeWidth={v===0?"1":"0.7"}/>
+            <text x={PL-3} y={yS(v)+3} fill="rgba(50,80,150,0.5)" fontSize="6"
+              textAnchor="end" fontFamily="Arial,sans-serif">{v}</text>
+          </g>
         ))}
 
-        {/* PRO line */}
-        <line x1={PL} y1={proY} x2={W-PR} y2={proY}
-          stroke="rgba(50,90,180,0.55)" strokeWidth="1.2" strokeDasharray="3,3"/>
-        <text x={PL-2} y={proY-1} fill="rgba(30,70,160,0.8)" fontSize="6.5"
-          textAnchor="end" fontFamily="Arial,sans-serif" fontWeight="bold">PRO</text>
-        <text x={PL-2} y={proY+7} fill="rgba(30,70,160,0.6)" fontSize="5.5"
-          textAnchor="end" fontFamily="Arial,sans-serif">1000</text>
-        <text x={PL-2} y={yS(0)+1} fill="rgba(50,80,150,0.45)" fontSize="6"
-          textAnchor="end" fontFamily="Arial,sans-serif">0</text>
-
-        {/* Area */}
         {areaPath && <path d={areaPath} fill="url(#wiiAreaG3)" clipPath="url(#wiiClip2)"/>}
 
-        {/* Main line */}
         <path d={linePath} fill="none" stroke={trendColor} strokeWidth="2"
           strokeLinejoin="miter" strokeLinecap="square" clipPath="url(#wiiClip2)"/>
 
-        {/* Dots — missed days dimmer */}
         {visible.map((p,i)=>{
           const isLast = i === visible.length-1;
-          const col = p.missed ? "rgba(180,60,60,0.6)" : isLast ? trendColor : `${trendColor}bb`;
           return (
             <circle key={p.date} cx={p.x} cy={p.y}
-              r={isLast ? 4.5 : p.missed ? 2 : 2.5}
-              fill={col}
+              r={isLast ? 4.5 : 2.5}
+              fill={isLast ? trendColor : `${trendColor}bb`}
               stroke={isLast ? "white" : "none"} strokeWidth="1.5"/>
           );
         })}
 
-        {/* Missed-day drop markers — small red down-triangles */}
-        {visible.filter(p=>p.missed).map(p=>(
-          <path key={`m${p.date}`}
-            d={`M${p.x},${p.y+6} l3,-5 l-6,0 Z`}
-            fill="rgba(200,60,60,0.55)"/>
-        ))}
-
-        {/* Score bubble at latest */}
+        {/* Score bubble */}
         {latest && animPct > 0.7 && (
           <g style={{opacity: Math.min(1,(animPct-0.7)/0.3)}}>
             <line x1={latest.x} y1={latest.y-5} x2={bx+bubbleW/2} y2={by+bubbleH}
@@ -1125,19 +1096,19 @@ function WiiProgressGraph({ score }) {
             <rect x={bx} y={by} width={bubbleW} height={bubbleH} rx={5}
               fill="white" stroke={`${trendColor}88`} strokeWidth="1"/>
             <text x={bx+bubbleW/2} y={by+bubbleH-5} fill="#0a2870"
-              fontSize="13" fontWeight="bold" textAnchor="middle"
-              fontFamily="Arial,sans-serif">{score}</text>
-            {delta!==null && delta!==0 && (
+              fontSize="12" fontWeight="bold" textAnchor="middle"
+              fontFamily="Arial,sans-serif">{Math.round(todayCompound)}</text>
+            {compoundDelta!==null && compoundDelta!==0 && (
               <text x={bx+bubbleW-4} y={by+bubbleH-5}
-                fill={delta>0?"#0a7030":"#a01818"}
+                fill={compoundDelta>0?"#0a7030":"#a01818"}
                 fontSize="8" fontWeight="bold" textAnchor="end"
-                fontFamily="Arial,sans-serif">{delta>0?"+":""}{delta}</text>
+                fontFamily="Arial,sans-serif">{compoundDelta>0?"+":""}{compoundDelta}</text>
             )}
           </g>
         )}
 
         {/* X-axis dates */}
-        {graphPts.filter((_,i)=>i===0||i%5===0||i===SHOW-1).map((p,_,arr)=>{
+        {graphPts.filter((_,i)=>i===0||i%5===0||i===SHOW-1).map((p)=>{
           const i = graphPts.indexOf(p);
           const d = new Date(p.date+"T12:00:00");
           return (
@@ -1153,10 +1124,10 @@ function WiiProgressGraph({ score }) {
 
       <div className="wii-stats">
         <div className="wii-stat"><div className="val">{score}</div><div className="lbl">Today</div></div>
-        <div className="wii-stat"><div className="val">{avgScore}</div><div className="lbl">Avg</div></div>
+        <div className="wii-stat"><div className="val">{Math.round(todayCompound)}</div><div className="lbl">Lifetime</div></div>
         <div className="wii-stat">
-          <div className="val" style={{color:delta===null?undefined:delta>0?"#4ade80":delta<0?"#f87171":undefined}}>
-            {delta!==null?(delta>0?`+${delta}`:String(delta)):"-"}
+          <div className="val" style={{color:compoundDelta===null?undefined:compoundDelta>0?"#4ade80":compoundDelta<0?"#f87171":undefined}}>
+            {compoundDelta!==null?(compoundDelta>0?`+${compoundDelta}`:String(compoundDelta)):"-"}
           </div>
           <div className="lbl">Change</div>
         </div>
@@ -2273,8 +2244,20 @@ function App({ auth, onLogout }){
   const safeBonus=typeof challengeBonus==="number"?challengeBonus:0;
   const score=Math.min(100+safeBonus,Math.round(taskScore+habitScore)+safeBonus);
 
+  // Compound (lifetime) score — sum of all daily scores, minus 10 for each day that wasn't 100
+  // Computed from history in WiiProgressGraph, passed down as a derived value
   const isdev = auth?.role === "dev";
-  const TABS=[["home","🏠 Home"],["tasks","✅ Tasks"],["timer","⏱ Timer"],["habits","🎯 Habits"],["challenges","⚡ Challenges"],["board","🏆 Board"],["nutrition","🥗 Nutrition"],["tips","📖 Tips"],...(isdev?[["devpanel","🔧 Dev"]]:[])];
+  const TABS=[
+    ["home",       "🏠","Home"],
+    ["tasks",      "✅","Tasks"],
+    ["timer",      "⏱","Timer"],
+    ["habits",     "🎯","Habits"],
+    ["challenges", "⚡","Challenges"],
+    ["board",      "🏆","Board"],
+    ["nutrition",  "🥗","Nutrition"],
+    ["tips",       "📖","Tips"],
+    ...(isdev?[["devpanel","🔧","Dev"]]:[]),
+  ];
 
   return (
     <UserCtx.Provider value={uk}>
@@ -2325,13 +2308,11 @@ function App({ auth, onLogout }){
         </div>
 
         <div className="nav">
-          {TABS.slice(0,4).map(([k,l])=>(
-            <button key={k} className={`nb${tab===k?" on":""}`} onClick={()=>setTab(k)}>{l}</button>
-          ))}
-        </div>
-        <div className="nav-row2">
-          {TABS.slice(4).map(([k,l])=>(
-            <button key={k} className={`nb${tab===k?" on":""}`} onClick={()=>setTab(k)}>{l}</button>
+          {TABS.map(([k,ico,lbl])=>(
+            <button key={k} className={`nb${tab===k?" on":""}`} onClick={()=>setTab(k)}>
+              <span className="nb-ico">{ico}</span>
+              <span className="nb-lbl">{lbl}</span>
+            </button>
           ))}
         </div>
 
@@ -2375,13 +2356,18 @@ function App({ auth, onLogout }){
                   <div className="pdot" style={{background:PRIORITIES[t.priority].color}}/>
                   <div className={`ttx${t.done?" x":""}`}>{t.text}</div>
                   <span style={{fontSize:"0.68rem",fontFamily:"var(--fm)",color:t.done?"var(--mt)":PRIORITIES[t.priority].color,flexShrink:0}}>
-                    +{PRIO_PTS[t.priority]}pts
+                    {t.done?"✓ ":""}{PRIO_PTS[t.priority]}pt{PRIO_PTS[t.priority]!==1?"s":""}
                   </span>
                   <button className="dbtn" onClick={()=>delTask(t.id)}>×</button>
                 </div>
               ))}
             </div>
-            {tasks.length>0&&<div style={{marginTop:12,fontSize:"0.71rem",color:"var(--mt)",textAlign:"right",fontFamily:"var(--fm)"}}>{tasksDone}/{tasks.length} complete</div>}
+            {tasks.length>0&&<div style={{marginTop:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontSize:"0.71rem",color:"var(--mt)",fontFamily:"var(--fm)"}}>{tasksDone}/{tasks.length} complete</div>
+              <div style={{fontSize:"0.71rem",color:"var(--mt)",fontFamily:"var(--fm)"}}>
+                Tasks → <span style={{color:"var(--gold)"}}>{Math.round(taskScore)}</span>/60 score pts
+              </div>
+            </div>}
           </div>
         )}
 
