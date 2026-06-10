@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
 
 // ── Config ───────────────────────────────────────────────────────────────
 const _env = (typeof import.meta !== "undefined" && import.meta.env) ? import.meta.env : {};
@@ -214,6 +214,10 @@ function usePersist(key,fallback){
   return [val,set];
 }
 
+// ── User context — so every sub-component scopes its storage to the current user ──
+const UserCtx = createContext("u_guest");
+const useUK = () => useContext(UserCtx);
+
 // ── Sound ─────────────────────────────────────────────────────────────────
 function playSound(type,vol=70){
   if(type==="silent"||vol===0) return;
@@ -291,9 +295,10 @@ const CHALLENGE_POOL = [
 // ── Challenges Tab ────────────────────────────────────────────────────────
 function ChallengesTab({ onBonusEarned }) {
   const tk = todayKey();
-  const [active, setActive]       = usePersist(`challenge_active_${tk}`, null);
-  const [completed, setCompleted] = usePersist(`challenge_done_${tk}`, []);
-  const [bonusTotal, setBonusTotal] = usePersist(`challenge_bonus_${tk}`, 0);
+  const uk = useUK();
+  const [active, setActive]       = usePersist(`${uk}_challenge_active_${tk}`, null);
+  const [completed, setCompleted] = usePersist(`${uk}_challenge_done_${tk}`, []);
+  const [bonusTotal, setBonusTotal] = usePersist(`${uk}_challenge_bonus_${tk}`, 0);
 
   const [pickMode, setPickMode]           = useState(false);
   const [customText, setCustomText]       = useState("");
@@ -951,7 +956,8 @@ function buildGraphLine(safeHistory, todayDate, liveScore, SHOW) {
 
 // ── Wii Progress Graph ────────────────────────────────────────────────────
 function WiiProgressGraph({ score }) {
-  const [history, setHistory] = usePersist("score_history_v3", []);
+  const uk=useUK();
+  const [history, setHistory] = usePersist(`${uk}_score_history_v3`, []);
   const [animPct, setAnimPct] = useState(0); // 0→1 draw animation
 
   // Write today's score
@@ -1192,10 +1198,11 @@ function SimpleHabitCard({ habit, done, onToggle }){
 
 // ── Water ─────────────────────────────────────────────────────────────────
 function WaterHabitCard({ habit, done, onToggle, tk }){
+  const uk=useUK();
   const [open,setOpen]=useState(false);
-  const [unit,setUnit]=usePersist("trk_water_unit","oz");
-  const [goal,setGoal]=usePersist("trk_water_goal_oz",64);
-  const [entries,setEntries]=usePersist(`trk_water_${tk}`,[]);
+  const [unit,setUnit]=usePersist(`${uk}_trk_water_unit`,"oz");
+  const [goal,setGoal]=usePersist(`${uk}_trk_water_goal_oz`,64);
+  const [entries,setEntries]=usePersist(`${uk}_trk_water_${tk}`,[]);
   const [custom,setCustom]=useState("");
   const OZ_Q=[8,12,16,24,32], ML_Q=[250,350,500,750];
   const safeEntries=Array.isArray(entries)?entries:[];
@@ -1246,9 +1253,10 @@ function WaterHabitCard({ habit, done, onToggle, tk }){
 
 // ── Activity ──────────────────────────────────────────────────────────────
 function ActivityHabitCard({ habit, done, onToggle, tk }){
+  const uk=useUK();
   const [open,setOpen]=useState(false);
-  const [unit,setUnit]=usePersist("trk_act_unit","mi");
-  const [entries,setEntries]=usePersist(`trk_act_${tk}`,[]);
+  const [unit,setUnit]=usePersist(`${uk}_trk_act_unit`,"mi");
+  const [entries,setEntries]=usePersist(`${uk}_trk_act_${tk}`,[]);
   const [actName,setActName]=useState("Running");
   const [dist,setDist]=useState("");
   const ACTS=["Running","Walking","Cycling","Swimming","Hiking","Gym","Yoga","Rowing"];
@@ -1295,9 +1303,10 @@ function ActivityHabitCard({ habit, done, onToggle, tk }){
 
 // ── Reading ───────────────────────────────────────────────────────────────
 function ReadingHabitCard({ habit, done, onToggle, tk }){
+  const uk=useUK();
   const [open,setOpen]=useState(false);
-  const [entries,setEntries]=usePersist(`trk_read_${tk}`,[]);
-  const [finished,setFinished]=usePersist(`trk_books_${tk}`,0);
+  const [entries,setEntries]=usePersist(`${uk}_trk_read_${tk}`,[]);
+  const [finished,setFinished]=usePersist(`${uk}_trk_books_${tk}`,0);
   const [book,setBook]=useState("");
   const [pages,setPages]=useState("");
   const safeReadEntries=Array.isArray(entries)?entries:[];
@@ -1335,8 +1344,9 @@ function ReadingHabitCard({ habit, done, onToggle, tk }){
 
 // ── Meditation ────────────────────────────────────────────────────────────
 function MeditationHabitCard({ habit, done, onToggle, tk }){
+  const uk=useUK();
   const [open,setOpen]=useState(false);
-  const [entries,setEntries]=usePersist(`trk_med_${tk}`,[]);
+  const [entries,setEntries]=usePersist(`${uk}_trk_med_${tk}`,[]);
   const [mins,setMins]=useState(10);
   const QUICK=[5,10,15,20,30];
   const safeMedEntries=Array.isArray(entries)?entries:[];
@@ -1375,8 +1385,9 @@ function MeditationHabitCard({ habit, done, onToggle, tk }){
 
 // ── Sleep ─────────────────────────────────────────────────────────────────
 function SleepHabitCard({ habit, done, onToggle, tk }){
+  const uk=useUK();
   const [open,setOpen]=useState(false);
-  const [entries,setEntries]=usePersist(`trk_sleep_${tk}`,[]);
+  const [entries,setEntries]=usePersist(`${uk}_trk_sleep_${tk}`,[]);
   const [hrs,setHrs]=useState(8);
   const [qual,setQual]=useState(4);
   const safeSleepEntries=Array.isArray(entries)?entries:[];
@@ -1424,9 +1435,10 @@ function SleepHabitCard({ habit, done, onToggle, tk }){
 
 // ── Steps ─────────────────────────────────────────────────────────────────
 function StepsHabitCard({ habit, done, onToggle, tk }){
+  const uk=useUK();
   const [open,setOpen]=useState(false);
-  const [entries,setEntries]=usePersist(`trk_steps_${tk}`,[]);
-  const [goal,setGoal]=usePersist("trk_steps_goal",10000);
+  const [entries,setEntries]=usePersist(`${uk}_trk_steps_${tk}`,[]);
+  const [goal,setGoal]=usePersist(`${uk}_trk_steps_goal`,10000);
   const [input,setInput]=useState("");
   const safeStepsEntries=Array.isArray(entries)?entries:[];
   const total=safeStepsEntries.reduce((s,e)=>s+e.steps,0);
@@ -1468,9 +1480,10 @@ function StepsHabitCard({ habit, done, onToggle, tk }){
 
 // ── Weight ────────────────────────────────────────────────────────────────
 function WeightHabitCard({ habit, done, onToggle, tk }){
+  const uk=useUK();
   const [open,setOpen]=useState(false);
-  const [unit,setUnit]=usePersist("trk_wt_unit","lbs");
-  const [allEntries,setAllEntries]=usePersist("trk_wt_all",[]);
+  const [unit,setUnit]=usePersist(`${uk}_trk_wt_unit`,"lbs");
+  const [allEntries,setAllEntries]=usePersist(`${uk}_trk_wt_all`,[]);
   const [input,setInput]=useState("");
   const todayEntries=allEntries.filter(e=>e.date===tk);
   const last=allEntries.length>0?allEntries[allEntries.length-1]:null;
@@ -1517,8 +1530,9 @@ function WeightHabitCard({ habit, done, onToggle, tk }){
 
 // ── Mood ──────────────────────────────────────────────────────────────────
 function MoodHabitCard({ habit, done, onToggle, tk }){
+  const uk=useUK();
   const [open,setOpen]=useState(false);
-  const [entries,setEntries]=usePersist(`trk_mood_${tk}`,[]);
+  const [entries,setEntries]=usePersist(`${uk}_trk_mood_${tk}`,[]);
   const [selected,setSelected]=useState(3);
   const safeMoodEntries=Array.isArray(entries)?entries:[];
   const last=safeMoodEntries.length>0?safeMoodEntries[safeMoodEntries.length-1]:null;
@@ -1555,9 +1569,10 @@ function MoodHabitCard({ habit, done, onToggle, tk }){
 
 // ── Counter ───────────────────────────────────────────────────────────────
 function CounterHabitCard({ habit, done, onToggle, tk }){
+  const uk=useUK();
   const [open,setOpen]=useState(false);
-  const [count,setCount]=usePersist(`trk_ctr_${habit.id}_${tk}`,0);
-  const [goal,setGoal]=usePersist(`trk_ctr_goal_${habit.id}`,10);
+  const [count,setCount]=usePersist(`${uk}_trk_ctr_${habit.id}_${tk}`,0);
+  const [goal,setGoal]=usePersist(`${uk}_trk_ctr_goal_${habit.id}`,10);
   const pct=Math.min(100,(count/goal)*100);
   return (
     <div className={`ucard${done?" done":""}`}>
@@ -1650,8 +1665,9 @@ function ManageHabitsCard({ habitList, setHabitList, setHabitDone }){
 
 // ── Nutrition Tab ─────────────────────────────────────────────────────────
 function NutritionTab({ tk }){
-  const [entries,setEntries]=usePersist(`nutrition_${tk}`,[]);
-  const [goals,setGoals]=usePersist("nutrition_goals",{cal:2000,p:150,c:250,f:65});
+  const uk=useUK();
+  const [entries,setEntries]=usePersist(`${uk}_nutrition_${tk}`,[]);
+  const [goals,setGoals]=usePersist(`${uk}_nutrition_goals`,{cal:2000,p:150,c:250,f:65});
   const [search,setSearch]=useState("");
   const [showCustom,setShowCustom]=useState(false);
   const [showGoals,setShowGoals]=useState(false);
@@ -2001,6 +2017,135 @@ function LeaderboardPanel({ currentUser, currentScore }) {
   );
 }
 
+// ── Dev Panel Component ───────────────────────────────────────────────────
+function DevPanel({ auth, onLogout, score, taskScore, habitScore, safeBonus, setChallengeBonus, uk }) {
+  const [pushStatus, setPushStatus] = useState(null); // null | "pushing" | "ok" | "err"
+  const [pushMsg,    setPushMsg]    = useState("");
+  const [scoreOverride, setScoreOverride] = useState("");
+  const [lsFilter, setLsFilter]     = useState(uk);
+  const [lsKeys, setLsKeys]         = useState([]);
+  const [showLS, setShowLS]         = useState(false);
+
+  const pushScore = async (overrideVal) => {
+    const s = overrideVal !== undefined ? overrideVal : score;
+    setPushStatus("pushing"); setPushMsg("");
+    try {
+      // Dev accounts have no JWT — use anon key directly
+      const result = await lbUpsert(auth.username, s, true, SUPABASE_KEY, auth.userId);
+      if (result) {
+        setPushStatus("ok"); setPushMsg(`✅ Pushed score ${s} to leaderboard`);
+      } else {
+        setPushStatus("err"); setPushMsg("❌ Upsert returned null — check Supabase RLS or table name");
+      }
+    } catch(e) {
+      setPushStatus("err"); setPushMsg(`❌ Error: ${e.message}`);
+    }
+    setTimeout(() => setPushStatus(null), 4000);
+  };
+
+  const applyScoreOverride = () => {
+    const n = parseInt(scoreOverride);
+    if (isNaN(n) || n < 0) return;
+    setChallengeBonus(Math.max(0, n - Math.round(taskScore + habitScore)));
+    setScoreOverride("");
+  };
+
+  const refreshLS = () => {
+    const keys = Object.keys(localStorage)
+      .filter(k => lsFilter ? k.includes(lsFilter) : true)
+      .sort();
+    setLsKeys(keys);
+  };
+
+  const clearLsKey = (k) => { localStorage.removeItem(k); refreshLS(); };
+
+  return (
+    <div>
+      <div className="prow"><div className="ptitle">🔧 Dev Panel</div></div>
+
+      {/* Account */}
+      <div className="dev-section">
+        <div className="dev-section-title">Account</div>
+        <div className="dev-row"><span className="dev-lbl">Logged in as</span><span className="dev-val">{auth?.username} <span className="hdr-devbadge">DEV</span></span></div>
+        <div className="dev-row"><span className="dev-lbl">Storage prefix</span><span className="dev-val" style={{fontFamily:"var(--fm)",fontSize:"0.75rem"}}>{uk}</span></div>
+        <div className="dev-row"><span className="dev-lbl">Session started</span><span className="dev-val">{auth?.loginAt?new Date(auth.loginAt).toLocaleTimeString():"-"}</span></div>
+        <button className="dev-btn-danger" onClick={onLogout}>Sign Out</button>
+      </div>
+
+      {/* Scores */}
+      <div className="dev-section">
+        <div className="dev-section-title">Scores</div>
+        <div className="dev-row"><span className="dev-lbl">Task score</span><span className="dev-val">{Math.round(taskScore)}/60</span></div>
+        <div className="dev-row"><span className="dev-lbl">Habit score</span><span className="dev-val">{Math.round(habitScore)}/40</span></div>
+        <div className="dev-row"><span className="dev-lbl">Challenge bonus</span><span className="dev-val">+{safeBonus}</span></div>
+        <div className="dev-row"><span className="dev-lbl">Total score</span><span className="dev-val" style={{color:"var(--gold)",fontWeight:600}}>{score}</span></div>
+        <div style={{marginTop:10,display:"flex",gap:8,alignItems:"center"}}>
+          <input className="ti" style={{width:80,flex:"none"}} type="number" min="0" placeholder="Override"
+            value={scoreOverride} onChange={e=>setScoreOverride(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&applyScoreOverride()}/>
+          <button className="dev-btn" onClick={applyScoreOverride}>Set Score</button>
+          <span style={{fontSize:"0.7rem",color:"var(--mt)"}}>Sets via bonus delta</span>
+        </div>
+      </div>
+
+      {/* Supabase / Push */}
+      <div className="dev-section">
+        <div className="dev-section-title">Supabase</div>
+        <div className="dev-row"><span className="dev-lbl">URL</span><span className="dev-val">{SUPABASE_URL?"✅ Set":"❌ Missing"}</span></div>
+        <div className="dev-row"><span className="dev-lbl">Anon key</span><span className="dev-val">{SUPABASE_KEY?"✅ Set":"❌ Missing"}</span></div>
+        <div className="dev-row"><span className="dev-lbl">User JWT</span><span className="dev-val" style={{color:"var(--mt)"}}>{auth?.token?"✅ Present":"⚠ None (dev — uses anon key)"}</span></div>
+        <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+          <button className="dev-btn" disabled={pushStatus==="pushing"} onClick={()=>pushScore()}>
+            {pushStatus==="pushing"?"Pushing…":"Push Score Now"}
+          </button>
+          <button className="dev-btn" disabled={pushStatus==="pushing"} onClick={()=>pushScore(99)}>
+            Push 99 (test)
+          </button>
+          <button className="dev-btn" disabled={pushStatus==="pushing"} onClick={()=>pushScore(0)}>
+            Push 0 (test)
+          </button>
+        </div>
+        {pushMsg&&(
+          <div style={{marginTop:8,fontSize:"0.78rem",fontFamily:"var(--fm)",
+            color:pushStatus==="ok"?"var(--grn)":"var(--red)",
+            background:"var(--sf2)",border:"1px solid var(--bd)",borderRadius:6,padding:"6px 10px"}}>
+            {pushMsg}
+          </div>
+        )}
+      </div>
+
+      {/* localStorage Inspector */}
+      <div className="dev-section">
+        <div className="dev-section-title">localStorage Inspector</div>
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          <input className="ti" style={{flex:1}} placeholder={`Filter keys (default: ${uk})`}
+            value={lsFilter} onChange={e=>setLsFilter(e.target.value)}/>
+          <button className="dev-btn" onClick={()=>{setShowLS(true);refreshLS();}}>Inspect</button>
+          {showLS&&<button className="dev-btn" onClick={()=>setShowLS(false)}>Hide</button>}
+        </div>
+        {showLS&&(
+          <div style={{maxHeight:260,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>
+            {lsKeys.length===0&&<div style={{fontSize:"0.78rem",color:"var(--mt)",fontStyle:"italic"}}>No keys matching filter.</div>}
+            {lsKeys.map(k=>{
+              let val="";
+              try{ const raw=localStorage.getItem(k); val=raw&&raw.length>60?raw.slice(0,60)+"…":raw; }catch{}
+              return (
+                <div key={k} style={{background:"var(--sf2)",border:"1px solid var(--bd)",borderRadius:6,padding:"5px 8px",display:"flex",gap:8,alignItems:"flex-start"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:"0.68rem",fontFamily:"var(--fm)",color:"var(--gold)",wordBreak:"break-all"}}>{k}</div>
+                    <div style={{fontSize:"0.65rem",color:"var(--mt)",wordBreak:"break-all",marginTop:2}}>{val}</div>
+                  </div>
+                  <button className="trk-entry-del" style={{flexShrink:0}} onClick={()=>clearLsKey(k)}>✕</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────
 const HOME_MSGS = [
   score => score>=90?"🔥 Absolutely crushing it today. Keep that momentum going!":
@@ -2030,9 +2175,11 @@ function App({ auth, onLogout }){
   const [tab,setTab]=useState("home");
   const today=new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
   const tk=todayKey();
+  // Scope all storage keys to the logged-in user so accounts don't bleed into each other
+  const uk = auth?.username ? `u_${auth.username}` : "u_guest";
 
   // Tasks
-  const [tasks,setTasks]=usePersist("prod_tasks_v2",[]);
+  const [tasks,setTasks]=usePersist(`${uk}_prod_tasks_v2`,[]);
   const [newTask,setNewTask]=useState("");
   const [newPrio,setNewPrio]=useState("medium");
   const addTask=()=>{ if(!newTask.trim())return; setTasks(t=>[...t,{id:Date.now(),text:newTask.trim(),priority:newPrio,done:false}]); setNewTask(""); };
@@ -2043,17 +2190,17 @@ function App({ auth, onLogout }){
   const doneWeight=tasks.filter(t=>t.done).reduce((s,t)=>s+PRIO_PTS[t.priority],0);
 
   // Timer
-  const [timerCfg,setTimerCfg]=usePersist("prod_timer_cfg_v2",DEFAULT_TIMER);
+  const [timerCfg,setTimerCfg]=usePersist(`${uk}_prod_timer_cfg_v2`,DEFAULT_TIMER);
   const [showTimerSett,setShowTimerSett]=useState(false);
   const [showSoundSett,setShowSoundSett]=useState(false);
   const [draftWork,setDraftWork]=useState(timerCfg.work);
   const [draftBrk,setDraftBrk]=useState(timerCfg.brk);
-  const [soundChoice,setSoundChoice]=usePersist("prod_sound","bell");
-  const [soundVol,setSoundVol]=usePersist("prod_vol",70);
+  const [soundChoice,setSoundChoice]=usePersist(`${uk}_prod_sound`,"bell");
+  const [soundVol,setSoundVol]=usePersist(`${uk}_prod_vol`,70);
   const [pomSecs,setPomSecs]=useState(timerCfg.work*60);
   const [pomRunning,setPomRunning]=useState(false);
   const [pomMode,setPomMode]=useState("work");
-  const [pomDone,setPomDone]=usePersist("prod_pomo_count",0);
+  const [pomDone,setPomDone]=usePersist(`${uk}_prod_pomo_count`,0);
   const pomRef=useRef(null);
   const pomModeRef=useRef(pomMode);
   const timerCfgRef=useRef(timerCfg);
@@ -2100,22 +2247,22 @@ function App({ auth, onLogout }){
   const ss=String(pomSecs%60).padStart(2,"0");
 
   // Habits
-  const [habitList,setHabitList]=usePersist("prod_habit_list_v2",DEFAULT_HABITS);
-  const [habitDone,setHabitDone]=usePersist(`prod_habits_${tk}`,{});
+  const [habitList,setHabitList]=usePersist(`${uk}_prod_habit_list_v2`,DEFAULT_HABITS);
+  const [habitDone,setHabitDone]=usePersist(`${uk}_prod_habits_${tk}`,{});
   const toggleHabit=id=>setHabitDone(p=>({...p,[id]:!p[id]}));
   const habitCount=habitList.filter(h=>habitDone[h.id]).length;
 
   // Day reset
   const [showResetConfirm,setShowResetConfirm]=useState(false);
   const [resetKey,setResetKey]=useState(0);
-  const [challengeBonus,setChallengeBonus]=usePersist(`challenge_bonus_${tk}`,0);
+  const [challengeBonus,setChallengeBonus]=usePersist(`${uk}_challenge_bonus_${tk}`,0);
   const handleDayReset=()=>{
     setTasks(t=>t.map(x=>({...x,done:false})));
     setHabitDone({});
     setPomDone(0);resetPom();
     setChallengeBonus(0);
-    ["trk_water","trk_act","trk_read","trk_med","trk_sleep","trk_steps","trk_mood"].forEach(k=>save(`${k}_${tk}`,"[]"));
-    save(`trk_books_${tk}`,"0");
+    ["trk_water","trk_act","trk_read","trk_med","trk_sleep","trk_steps","trk_mood"].forEach(k=>save(`${uk}_${k}_${tk}`,"[]"));
+    save(`${uk}_trk_books_${tk}`,"0");
     setResetKey(k=>k+1);
     setShowResetConfirm(false);
   };
@@ -2130,6 +2277,7 @@ function App({ auth, onLogout }){
   const TABS=[["home","🏠 Home"],["tasks","✅ Tasks"],["timer","⏱ Timer"],["habits","🎯 Habits"],["challenges","⚡ Challenges"],["board","🏆 Board"],["nutrition","🥗 Nutrition"],["tips","📖 Tips"],...(isdev?[["devpanel","🔧 Dev"]]:[])];
 
   return (
+    <UserCtx.Provider value={uk}>
     <>
       <style>{CSS}</style>
       {showResetConfirm&&(
@@ -2350,34 +2498,16 @@ function App({ auth, onLogout }){
 
         {/* ══ DEV PANEL ══ */}
         {tab==="devpanel"&&isdev&&(
-          <div>
-            <div className="prow"><div className="ptitle">🔧 Dev Panel</div></div>
-            <div className="dev-section">
-              <div className="dev-section-title">Account</div>
-              <div className="dev-row">
-                <span className="dev-lbl">Logged in as</span>
-                <span className="dev-val">{auth?.username} <span className="hdr-devbadge">DEV</span></span>
-              </div>
-              <div className="dev-row">
-                <span className="dev-lbl">Session started</span>
-                <span className="dev-val">{auth?.loginAt?new Date(auth.loginAt).toLocaleTimeString():"-"}</span>
-              </div>
-              <button className="dev-btn-danger" onClick={onLogout}>Sign Out</button>
-            </div>
-            <div className="dev-section">
-              <div className="dev-section-title">Scores</div>
-              <div className="dev-row"><span className="dev-lbl">Task score</span><span className="dev-val">{Math.round(taskScore)}/60</span></div>
-              <div className="dev-row"><span className="dev-lbl">Habit score</span><span className="dev-val">{Math.round(habitScore)}/40</span></div>
-              <div className="dev-row"><span className="dev-lbl">Challenge bonus</span><span className="dev-val">+{safeBonus}</span></div>
-              <div className="dev-row"><span className="dev-lbl">Total score</span><span className="dev-val" style={{color:"var(--gold)"}}>{score}</span></div>
-            </div>
-            <div className="dev-section">
-              <div className="dev-section-title">Supabase</div>
-              <div className="dev-row"><span className="dev-lbl">URL configured</span><span className="dev-val">{SUPABASE_URL?"✅ Yes":"❌ No"}</span></div>
-              <div className="dev-row"><span className="dev-lbl">Key configured</span><span className="dev-val">{SUPABASE_KEY?"✅ Yes":"❌ No"}</span></div>
-              <button className="dev-btn" onClick={()=>lbUpsert(auth.username,score,true,auth.token,auth.userId).then(()=>alert("Score pushed to leaderboard!"))}>Push Score Now</button>
-            </div>
-          </div>
+          <DevPanel
+            auth={auth}
+            onLogout={onLogout}
+            score={score}
+            taskScore={taskScore}
+            habitScore={habitScore}
+            safeBonus={safeBonus}
+            setChallengeBonus={setChallengeBonus}
+            uk={uk}
+          />
         )}
 
         {/* ══ NUTRITION ══ */}
@@ -2399,5 +2529,6 @@ function App({ auth, onLogout }){
         )}
       </div>
     </>
+    </UserCtx.Provider>
   );
 }
