@@ -2,10 +2,15 @@ import { useState, useEffect, useRef, useCallback, createContext, useContext } f
 
 // ── Config ───────────────────────────────────────────────────────────────
 const _env = (typeof import.meta !== "undefined" && import.meta.env) ? import.meta.env : {};
-const SUPABASE_URL  = _env.VITE_SUPABASE_URL  || "https://hfgqmlpvcixxjqyqhxfh.supabase.co/rest/v1/";
+// AUTH_URL must be the bare project URL — no /rest/v1/ suffix.
+// Strip it from the fallback in case the env var was set incorrectly.
+const SUPABASE_URL  = _env.VITE_SUPABASE_URL  || "https://hfgqmlpvcixxjqyqhxfh.supabase.co";
 const SUPABASE_KEY  = _env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhmZ3FtbHB2Y2l4eGpxeXFoeGZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5NTIwNjcsImV4cCI6MjA5NjUyODA2N30.oQ8ajczjwEijb4XpRNkcXYkdthfpLyb7xL3E_o_-qJ8";
 const DEV_PASSWORD  = _env.VITE_DEV_PASSWORD  || "focusdev2025";
-const AUTH_URL      = SUPABASE_URL ? SUPABASE_URL.replace(/\/$/, "") : "";
+// Always strip trailing slash AND any accidental /rest/v1 suffix
+const AUTH_URL = SUPABASE_URL
+  ? SUPABASE_URL.replace(/\/rest\/v1\/?$/, "").replace(/\/$/, "")
+  : "";
 
 // ── Supabase Auth API ─────────────────────────────────────────────────────
 async function sbAuthFetch(path, body) {
@@ -298,28 +303,42 @@ function ChallengesTab({ onBonusEarned, bonusTotal }) {
   const uk = useUK();
   const [active, setActive]       = usePersist(`${uk}_challenge_active_${tk}`, null);
   const [completed, setCompleted] = usePersist(`${uk}_challenge_done_${tk}`, []);
+  const [subSteps, setSubSteps]   = usePersist(`${uk}_challenge_substeps_${tk}`, []);
 
   const [pickMode, setPickMode]           = useState(false);
   const [customText, setCustomText]       = useState("");
   const [selectedDiff, setSelectedDiff]   = useState("medium");
   const [selectedChallenge, setSelectedChallenge] = useState(null);
+  const [newSubStep, setNewSubStep]       = useState("");
+
+  const safeSubSteps = Array.isArray(subSteps) ? subSteps : [];
 
   const startChallenge = (challenge, diff, customTaskText) => {
     const taskText = challenge.id === "c15" ? customTaskText : challenge[diff];
     setActive({ id: challenge.id, diff, task: taskText, cat: challenge.cat, bonusPts: DIFF_CONFIG[diff].bonusPts });
+    setSubSteps([]);
     setPickMode(false);
     setSelectedChallenge(null);
     setCustomText("");
   };
+
+  const addSubStep = () => {
+    if (!newSubStep.trim()) return;
+    setSubSteps(s => [...(Array.isArray(s)?s:[]), { id: Date.now(), text: newSubStep.trim(), done: false }]);
+    setNewSubStep("");
+  };
+  const toggleSubStep = id => setSubSteps(s => s.map(x => x.id===id ? {...x,done:!x.done} : x));
+  const delSubStep    = id => setSubSteps(s => s.filter(x => x.id!==id));
 
   const completeChallenge = () => {
     if (!active) return;
     setCompleted(d => [...(Array.isArray(d)?d:[]), { ...active, completedAt: Date.now(), earnedPts: active.bonusPts }]);
     onBonusEarned(active.bonusPts);
     setActive(null);
+    setSubSteps([]);
   };
 
-  const abandonChallenge = () => setActive(null);
+  const abandonChallenge = () => { setActive(null); setSubSteps([]); };
 
   const pickRandom = () => {
     const pool = CHALLENGE_POOL.filter(ch => ch.id !== "c15" && ch[selectedDiff]);
@@ -351,8 +370,32 @@ function ChallengesTab({ onBonusEarned, bonusTotal }) {
           </div>
           <div className="ch-active-task">{active.task}</div>
           <div className="ch-active-reward">
-            🎯 Complete this challenge for <strong style={{color:"var(--gold)"}}>+{active.bonusPts} bonus pts</strong>
+            🎯 Complete for <strong style={{color:"var(--gold)"}}>+{active.bonusPts} bonus pts</strong>
           </div>
+
+          {/* Sub-steps */}
+          {safeSubSteps.length > 0 && (
+            <div className="ch-substeps">
+              {safeSubSteps.map(s=>(
+                <div key={s.id} className="ch-substep-row">
+                  <div className={`ch-stcb${s.done?" chk":""}`} onClick={()=>toggleSubStep(s.id)}>
+                    {s.done&&<span style={{color:"#0e0e0f",fontSize:"0.6rem",fontWeight:"bold"}}>✓</span>}
+                  </div>
+                  <span className={`ch-stlbl${s.done?" x":""}`}>{s.text}</span>
+                  <button className="ch-st-del" onClick={()=>delSubStep(s.id)}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add sub-step */}
+          <div className="ch-sub-add-row">
+            <input className="ch-sub-add-inp" placeholder="Add a sub-step…"
+              value={newSubStep} onChange={e=>setNewSubStep(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter") addSubStep(); }}/>
+            <button className="ch-sub-add-btn" onClick={addSubStep}>+ Step</button>
+          </div>
+
           <div className="ch-active-btns">
             <button className="ch-btn-complete" onClick={completeChallenge}>✓ Mark Complete</button>
             <button className="ch-btn-abandon" onClick={abandonChallenge}>✕ Abandon</button>
@@ -545,11 +588,46 @@ const CSS = `
   .abtn{background:var(--gold);color:#0e0e0f;border:none;border-radius:8px;padding:10px 16px;font-family:var(--fb);font-weight:600;font-size:0.85rem;cursor:pointer;transition:opacity 0.15s;white-space:nowrap;}
   .abtn:hover{opacity:0.85;}
   .tlist{display:flex;flex-direction:column;gap:7px;}
-  .titem{display:flex;align-items:center;gap:11px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:11px 13px;transition:opacity 0.2s;}
+  .titem{display:flex;align-items:flex-start;gap:11px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:11px 13px;transition:opacity 0.2s;flex-direction:column;}
   .titem.dn{opacity:0.42;}
+  .titem-main{display:flex;align-items:center;gap:11px;width:100%;}
   .tcb{width:18px;height:18px;border-radius:5px;border:2px solid var(--bd);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.15s;}
   .tcb.chk{background:var(--grn);border-color:var(--grn);}
+  .tcb.locked{cursor:not-allowed;opacity:0.35;}
   .ttx{flex:1;font-size:0.87rem;line-height:1.4;} .ttx.x{text-decoration:line-through;color:var(--mt);}
+  /* Subtasks */
+  .subtasks{width:100%;padding-left:29px;display:flex;flex-direction:column;gap:5px;margin-top:2px;}
+  .subtask-row{display:flex;align-items:center;gap:8px;}
+  .stcb{width:14px;height:14px;border-radius:3px;border:1.5px solid var(--bd);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.15s;}
+  .stcb.chk{background:var(--grn);border-color:var(--grn);}
+  .stlbl{font-size:0.77rem;color:var(--mt);flex:1;line-height:1.3;}
+  .stlbl.x{text-decoration:line-through;opacity:0.5;}
+  .st-del{background:none;border:none;color:var(--mt);cursor:pointer;font-size:0.75rem;opacity:0;padding:0 2px;transition:opacity .15s;}
+  .subtask-row:hover .st-del{opacity:1;}
+  .st-add-row{display:flex;align-items:center;gap:6px;margin-top:3px;padding-left:29px;}
+  .st-add-inp{flex:1;background:transparent;border:none;border-bottom:1px solid var(--bd);outline:none;color:var(--tx);font-size:0.77rem;padding:3px 2px;font-family:var(--fb);}
+  .st-add-inp::placeholder{color:var(--mt);}
+  .st-add-inp:focus{border-bottom-color:var(--gdim);}
+  .st-add-btn{background:none;border:none;color:var(--mt);cursor:pointer;font-size:0.78rem;padding:2px 4px;transition:color .15s;}
+  .st-add-btn:hover{color:var(--gold);}
+  /* Sub-label on habits */
+  .u-sublabel{font-size:0.68rem;color:var(--mt);font-style:italic;margin-top:2px;cursor:text;}
+  .u-sublabel-inp{background:transparent;border:none;border-bottom:1px solid var(--bd);outline:none;color:var(--mt);font-size:0.68rem;font-style:italic;font-family:var(--fb);width:140px;padding:1px 2px;}
+  .u-sublabel-inp:focus{border-bottom-color:var(--gdim);}
+  /* Challenge sub-steps */
+  .ch-substeps{margin-top:12px;display:flex;flex-direction:column;gap:6px;}
+  .ch-substep-row{display:flex;align-items:center;gap:8px;}
+  .ch-stcb{width:16px;height:16px;border-radius:4px;border:1.5px solid rgba(255,255,255,0.25);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.15s;}
+  .ch-stcb.chk{background:var(--grn);border-color:var(--grn);}
+  .ch-stlbl{font-size:0.8rem;flex:1;line-height:1.3;}
+  .ch-stlbl.x{text-decoration:line-through;opacity:0.5;}
+  .ch-st-del{background:none;border:none;color:rgba(255,255,255,0.3);cursor:pointer;font-size:0.75rem;opacity:0;padding:0 2px;}
+  .ch-substep-row:hover .ch-st-del{opacity:1;}
+  .ch-sub-add-row{display:flex;align-items:center;gap:6px;margin-top:6px;}
+  .ch-sub-add-inp{flex:1;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:5px;outline:none;color:#fff;font-size:0.78rem;padding:5px 8px;font-family:var(--fb);}
+  .ch-sub-add-inp::placeholder{color:rgba(255,255,255,0.3);}
+  .ch-sub-add-btn{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:5px;color:#fff;cursor:pointer;font-size:0.78rem;padding:5px 10px;transition:all .15s;}
+  .ch-sub-add-btn:hover{background:rgba(255,255,255,0.18);}
   .pdot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
   .dbtn{background:none;border:none;color:var(--mt);cursor:pointer;font-size:1.1rem;opacity:0;transition:opacity 0.15s;padding:0 2px;}
   .titem:hover .dbtn{opacity:1;}
@@ -1137,28 +1215,68 @@ function WiiProgressGraph({ score }) {
   );
 }
 
-// ── Shared Card Headerer ────────────────────────────────────────────────────
-function UCardHeader({ habit, done, onToggle, summary, open, onExpand, hasTracker }){
+// ── Shared Card Header ────────────────────────────────────────────────────
+function UCardHeader({ habit, done, onToggle, summary, open, onExpand, hasTracker, lockToggle }){
+  const uk = useUK();
+  const [editing, setEditing] = useState(false);
+  const [label, setLabel] = usePersist(`${uk}_habit_sublabel_${habit.id}`, "");
+
   if(!hasTracker) return (
-    <div className="ucard-hdr simple" onClick={onToggle}>
-      <div className={`ucb${done?" chk":""}`}>
+    <div className="ucard-hdr simple">
+      <div className={`ucb${done?" chk":""}${lockToggle?" locked":""}`}
+        onClick={lockToggle ? undefined : onToggle}
+        title={lockToggle ? "Reach your goal first!" : undefined}>
         {done&&<span style={{color:"#0e0e0f",fontSize:"0.62rem",fontWeight:"bold"}}>✓</span>}
       </div>
-      <span className="u-emoji">{habit.emoji}</span>
-      <span className={`u-name${done?" x":""}`}>{habit.name}</span>
+      <div style={{flex:1,minWidth:0,cursor:lockToggle?"default":"pointer"}} onClick={lockToggle ? undefined : onToggle}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span className="u-emoji">{habit.emoji}</span>
+          <span className={`u-name${done?" x":""}`}>{habit.name}</span>
+        </div>
+        {(label||editing)&&(
+          editing
+            ? <input autoFocus className="u-sublabel-inp"
+                value={label} onChange={e=>setLabel(e.target.value)}
+                onBlur={()=>setEditing(false)}
+                onKeyDown={e=>{if(e.key==="Enter"||e.key==="Escape")setEditing(false);}}
+                onClick={e=>e.stopPropagation()}
+                placeholder="Add a note…"/>
+            : <div className="u-sublabel" onClick={e=>{e.stopPropagation();setEditing(true);}}>{label}</div>
+        )}
+      </div>
+      {!editing&&<button className="st-add-btn" title="Add note" onClick={e=>{e.stopPropagation();setEditing(true);}}>✎</button>}
     </div>
   );
+
   return (
     <div className="ucard-hdr">
-      <div className={`ucb${done?" chk":""}`} onClick={e=>{e.stopPropagation();onToggle();}}>
+      <div className={`ucb${done?" chk":""}${lockToggle?" locked":""}`}
+        onClick={e=>{e.stopPropagation(); if(!lockToggle) onToggle();}}
+        title={lockToggle ? "Reach your goal first!" : undefined}>
         {done&&<span style={{color:"#0e0e0f",fontSize:"0.62rem",fontWeight:"bold"}}>✓</span>}
       </div>
-      <div className="ucard-expand" onClick={onExpand}>
+      <div className="ucard-expand" onClick={onExpand} style={{flex:1,minWidth:0}}>
         <span className="u-emoji">{habit.emoji}</span>
-        <span className={`u-name${done?" x":""}`}>{habit.name}</span>
-        {summary&&<span className="u-summary">{summary}</span>}
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            <span className={`u-name${done?" x":""}`}>{habit.name}</span>
+            {summary&&<span className="u-summary">{summary}</span>}
+          </div>
+          {(label||editing)&&(
+            editing
+              ? <input autoFocus className="u-sublabel-inp"
+                  value={label} onChange={e=>setLabel(e.target.value)}
+                  onBlur={()=>setEditing(false)}
+                  onKeyDown={e=>{if(e.key==="Enter"||e.key==="Escape")setEditing(false);}}
+                  onClick={e=>e.stopPropagation()}
+                  placeholder="Add a note…"/>
+              : <div className="u-sublabel" onClick={e=>{e.stopPropagation();setEditing(true);}}>{label}</div>
+          )}
+        </div>
         <span className={`u-chevron${open?" open":""}`}>▼</span>
       </div>
+      {!editing&&<button className="st-add-btn" title="Add note"
+        onClick={e=>{e.stopPropagation();setEditing(true);}}>✎</button>}
     </div>
   );
 }
@@ -1545,9 +1663,13 @@ function CounterHabitCard({ habit, done, onToggle, tk }){
   const [count,setCount]=usePersist(`${uk}_trk_ctr_${habit.id}_${tk}`,0);
   const [goal,setGoal]=usePersist(`${uk}_trk_ctr_goal_${habit.id}`,10);
   const pct=Math.min(100,(count/goal)*100);
+  const goalReached = count >= goal;
   return (
     <div className={`ucard${done?" done":""}`}>
-      <UCardHeader habit={habit} done={done} onToggle={onToggle} summary={count>0?`${count}`:null} open={open} onExpand={()=>setOpen(o=>!o)} hasTracker/>
+      <UCardHeader habit={habit} done={done} onToggle={onToggle}
+        summary={count>0?`${count}/${goal}`:null}
+        open={open} onExpand={()=>setOpen(o=>!o)} hasTracker
+        lockToggle={!goalReached&&!done}/>
       {open&&<div className="ucard-body">
         <div className="trk-row">
           <span style={{fontSize:"0.78rem",color:"var(--mt)"}}>Goal:</span>
@@ -1556,17 +1678,21 @@ function CounterHabitCard({ habit, done, onToggle, tk }){
         <div className="trk-row" style={{justifyContent:"center",gap:20,marginTop:14}}>
           <div className="step-btn" style={{width:40,height:40,fontSize:"1.4rem",borderRadius:"50%"}} onClick={()=>setCount(c=>Math.max(0,c-1))}>−</div>
           <div style={{textAlign:"center"}}>
-            <div style={{fontFamily:"var(--fm)",fontSize:"2rem",color:"var(--gold)",lineHeight:1}}>{count}</div>
+            <div style={{fontFamily:"var(--fm)",fontSize:"2rem",color:goalReached?"var(--grn)":"var(--gold)",lineHeight:1}}>{count}</div>
             <div style={{fontSize:"0.65rem",color:"var(--mt)",marginTop:3,textTransform:"uppercase",letterSpacing:"0.1em"}}>{habit.name}</div>
           </div>
           <div className="step-btn" style={{width:40,height:40,fontSize:"1.4rem",borderRadius:"50%",background:"rgba(212,168,75,0.15)",borderColor:"var(--gdim)",color:"var(--gold)"}} onClick={()=>setCount(c=>c+1)}>+</div>
         </div>
         <div className="trk-goal-bar" style={{marginTop:14}}>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.7rem",color:"var(--mt)"}}>
-            <span>{count} / {goal}</span><span>{pct.toFixed(0)}%</span>
+            <span>{count} / {goal}</span>
+            <span style={{color:goalReached?"var(--grn)":undefined}}>{goalReached?"✓ Goal reached!":pct.toFixed(0)+"%"}</span>
           </div>
-          <div className="bar"><div className="fill" style={{width:`${pct}%`}}/></div>
+          <div className="bar"><div className="fill" style={{width:`${pct}%`,background:goalReached?"var(--grn)":undefined}}/></div>
         </div>
+        {!goalReached&&<div style={{marginTop:8,fontSize:"0.71rem",color:"var(--mt)",fontStyle:"italic",textAlign:"center"}}>
+          Reach {goal} to unlock the checkbox ↑
+        </div>}
       </div>}
     </div>
   );
@@ -2128,12 +2254,49 @@ const HOME_MSGS = [
 
 function AppShell() {
   const [auth, setAuth] = useState(() => loadAuth());
+
   const logout = () => { clearAuth(); setAuth(null); };
+
+  const updateAuth = (a) => { saveAuth(a); setAuth(a); };
+
+  // Silently refresh the Supabase JWT on mount and every 50 min.
+  // If refresh fails (token too old / revoked) we log the user out cleanly.
+  useEffect(() => {
+    const tryRefresh = async (currentAuth) => {
+      if (!currentAuth || currentAuth.role === "dev") return; // dev accounts have no token
+      if (!currentAuth.refreshToken) return;
+      const { data, error } = await sbRefresh(currentAuth.refreshToken);
+      if (error || !data?.access_token) {
+        // Refresh token is expired — log out so they can sign in fresh
+        clearAuth(); setAuth(null); return;
+      }
+      const refreshed = {
+        ...currentAuth,
+        token: data.access_token,
+        refreshToken: data.refresh_token || currentAuth.refreshToken,
+        loginAt: Date.now(),
+      };
+      updateAuth(refreshed);
+    };
+
+    // Run immediately on mount to rehydrate an expired token after shutdown
+    const current = loadAuth();
+    if (current) tryRefresh(current);
+
+    // Then refresh every 50 minutes while the tab is open
+    const interval = setInterval(() => {
+      const latest = loadAuth();
+      if (latest) tryRefresh(latest);
+    }, 50 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <>
       <style>{CSS}</style>
       {!auth
-        ? <LoginScreen onLogin={a => setAuth(a)}/>
+        ? <LoginScreen onLogin={a => { saveAuth(a); setAuth(a); }}/>
         : <App auth={auth} onLogout={logout}/>
       }
     </>
@@ -2141,6 +2304,55 @@ function AppShell() {
 }
 
 export default AppShell;
+
+// ── TaskItem — task with inline subtask checkboxes ────────────────────────
+function TaskItem({ t, contrib, subs, onToggle, onDel, onAddSub, onToggleSub, onDelSub }){
+  const [adding, setAdding] = useState(false);
+  const [subText, setSubText] = useState("");
+  const submitSub = () => {
+    if(!subText.trim()) return;
+    onAddSub(subText.trim());
+    setSubText(""); setAdding(false);
+  };
+  return (
+    <div className={`titem${t.done?" dn":""}`}>
+      <div className="titem-main">
+        <div className={`tcb${t.done?" chk":""}`} onClick={onToggle}>
+          {t.done&&<span style={{color:"#0e0e0f",fontSize:"0.7rem",fontWeight:"bold"}}>✓</span>}
+        </div>
+        <div className="pdot" style={{background:PRIORITIES[t.priority].color}}/>
+        <div className={`ttx${t.done?" x":""}`} style={{flex:1}}>{t.text}</div>
+        <span style={{fontSize:"0.68rem",fontFamily:"var(--fm)",color:t.done?"var(--mt)":PRIORITIES[t.priority].color,flexShrink:0}}>
+          +{contrib}pt{contrib!==1?"s":""}
+        </span>
+        <button className="st-add-btn" title="Add sub-step" onClick={()=>setAdding(a=>!a)}>⊕</button>
+        <button className="dbtn" onClick={onDel}>×</button>
+      </div>
+      {subs.length>0&&(
+        <div className="subtasks">
+          {subs.map(s=>(
+            <div key={s.id} className="subtask-row">
+              <div className={`stcb${s.done?" chk":""}`} onClick={()=>onToggleSub(s.id)}>
+                {s.done&&<span style={{color:"#0e0e0f",fontSize:"0.55rem",fontWeight:"bold"}}>✓</span>}
+              </div>
+              <span className={`stlbl${s.done?" x":""}`}>{s.text}</span>
+              <button className="st-del" onClick={()=>onDelSub(s.id)}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {adding&&(
+        <div className="st-add-row">
+          <input className="st-add-inp" autoFocus placeholder="Sub-step…"
+            value={subText} onChange={e=>setSubText(e.target.value)}
+            onKeyDown={e=>{if(e.key==="Enter")submitSub();if(e.key==="Escape"){setAdding(false);setSubText("");}}}/>
+          <button className="st-add-btn" onClick={submitSub}>↵</button>
+          <button className="st-add-btn" onClick={()=>{setAdding(false);setSubText("");}}>✕</button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function App({ auth, onLogout }){
   const [tab,setTab]=useState("home");
@@ -2153,9 +2365,12 @@ function App({ auth, onLogout }){
   const [tasks,setTasks]=usePersist(`${uk}_prod_tasks_v2`,[]);
   const [newTask,setNewTask]=useState("");
   const [newPrio,setNewPrio]=useState("medium");
-  const addTask=()=>{ if(!newTask.trim())return; setTasks(t=>[...t,{id:Date.now(),text:newTask.trim(),priority:newPrio,done:false}]); setNewTask(""); };
+  const addTask=()=>{ if(!newTask.trim())return; setTasks(t=>[...t,{id:Date.now(),text:newTask.trim(),priority:newPrio,done:false,subtasks:[]}]); setNewTask(""); };
   const toggleTask=id=>setTasks(t=>t.map(x=>x.id===id?{...x,done:!x.done}:x));
   const delTask=id=>setTasks(t=>t.filter(x=>x.id!==id));
+  const addSubtask=(tid,text)=>setTasks(t=>t.map(x=>x.id===tid?{...x,subtasks:[...(x.subtasks||[]),{id:Date.now(),text,done:false}]}:x));
+  const toggleSubtask=(tid,sid)=>setTasks(t=>t.map(x=>x.id===tid?{...x,subtasks:(x.subtasks||[]).map(s=>s.id===sid?{...s,done:!s.done}:s)}:x));
+  const delSubtask=(tid,sid)=>setTasks(t=>t.map(x=>x.id===tid?{...x,subtasks:(x.subtasks||[]).filter(s=>s.id!==sid)}:x));
   const tasksDone=tasks.filter(t=>t.done).length;
   const totalWeight=tasks.reduce((s,t)=>s+PRIO_PTS[t.priority],0);
   const doneWeight=tasks.filter(t=>t.done).reduce((s,t)=>s+PRIO_PTS[t.priority],0);
@@ -2359,21 +2574,13 @@ function App({ auth, onLogout }){
                 if(a.done!==b.done)return a.done?1:-1;
                 return ({high:0,medium:1,low:2})[a.priority]-({high:0,medium:1,low:2})[b.priority];
               }).map(t=>{
-                // Each task's actual score contribution = its weight / total weight * 60
                 const contrib = totalWeight>0 ? Math.round((PRIO_PTS[t.priority]/totalWeight)*60) : 0;
-                return (
-                <div key={t.id} className={`titem${t.done?" dn":""}`}>
-                  <div className={`tcb${t.done?" chk":""}`} onClick={()=>toggleTask(t.id)}>
-                    {t.done&&<span style={{color:"#0e0e0f",fontSize:"0.7rem",fontWeight:"bold"}}>✓</span>}
-                  </div>
-                  <div className="pdot" style={{background:PRIORITIES[t.priority].color}}/>
-                  <div className={`ttx${t.done?" x":""}`}>{t.text}</div>
-                  <span style={{fontSize:"0.68rem",fontFamily:"var(--fm)",color:t.done?"var(--mt)":PRIORITIES[t.priority].color,flexShrink:0}}>
-                    +{contrib}pt{contrib!==1?"s":""}
-                  </span>
-                  <button className="dbtn" onClick={()=>delTask(t.id)}>×</button>
-                </div>
-                );
+                const subs = t.subtasks||[];
+                return <TaskItem key={t.id} t={t} contrib={contrib} subs={subs}
+                  onToggle={()=>toggleTask(t.id)} onDel={()=>delTask(t.id)}
+                  onAddSub={(txt)=>addSubtask(t.id,txt)}
+                  onToggleSub={(sid)=>toggleSubtask(t.id,sid)}
+                  onDelSub={(sid)=>delSubtask(t.id,sid)}/>;
               })}
             </div>
             {tasks.length>0&&<div style={{marginTop:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
