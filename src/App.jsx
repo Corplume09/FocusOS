@@ -245,10 +245,24 @@ const MOOD_OPTS = [
 const todayKey = () => new Date().toISOString().slice(0,10);
 function load(k,fb){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):fb; }catch{ return fb; } }
 function save(k,v) { try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} }
-function usePersist(key,fallback){
-  const [val,setVal] = useState(()=>load(key,fallback));
-  const set = useCallback((v)=>{ const next=typeof v==="function"?v(load(key,fallback)):v; save(key,next); setVal(next); },[key]);
-  return [val,set];
+function usePersist(key, fallback){
+  const [val, setVal] = useState(() => load(key, fallback));
+  // Re-read from localStorage when remote sync writes new data in
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.detail === key || e.detail === "all") {
+        setVal(load(key, fallback));
+      }
+    };
+    window.addEventListener("focusos_sync", handler);
+    return () => window.removeEventListener("focusos_sync", handler);
+  }, [key]);
+  const set = useCallback((v) => {
+    const next = typeof v === "function" ? v(load(key, fallback)) : v;
+    save(key, next);
+    setVal(next);
+  }, [key]);
+  return [val, set];
 }
 
 // ── User context — so every sub-component scopes its storage to the current user ──
@@ -2457,36 +2471,48 @@ function applyPayload(uk, payload) {
       try { localStorage.setItem(`${uk}_${k}`, v); } catch {}
     }
   });
+  // Tell all usePersist hooks to re-read their values
+  window.dispatchEvent(new CustomEvent("focusos_sync", { detail: "all" }));
 }
 
 function useSync(auth) {
   const uk = auth?.username ? `u_${auth.username}` : null;
-  const [syncState, setSyncState] = useState("idle"); // idle | loading | synced | error
+  const [syncState, setSyncState] = useState("idle");
   const debounceRef = useRef(null);
   const lastPayloadRef = useRef(null);
 
-  // On mount: pull remote data and merge into localStorage
   useEffect(() => {
     if (!auth?.token || !auth?.userId || !uk) return;
+
+    // Only pull once per browser session to avoid any reload loops
+    const sessionFlag = `focusos_synced_${auth.userId}`;
+    if (sessionStorage.getItem(sessionFlag)) {
+      setSyncState("synced");
+      return;
+    }
+
     setSyncState("loading");
     syncLoad(auth.token, auth.userId).then(payload => {
       if (payload) {
+        // applyPayload writes to localStorage AND fires focusos_sync
+        // so all usePersist hooks re-read their values automatically
         applyPayload(uk, payload);
-        // Force a page reload so all usePersist hooks re-read from localStorage
-        window.location.reload();
       }
+      sessionStorage.setItem(sessionFlag, "1");
       setSyncState("synced");
-    }).catch(() => setSyncState("error"));
-  }, []); // run once on mount only
+    }).catch(() => {
+      sessionStorage.setItem(sessionFlag, "1");
+      setSyncState("error");
+    });
+  }, []);
 
-  // Push: call this whenever data changes; debounced 4s
   const push = useCallback(() => {
     if (!auth?.token || !auth?.userId || !uk) return;
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       const payload = buildPayload(uk);
       const str = JSON.stringify(payload);
-      if (str === lastPayloadRef.current) return; // nothing changed
+      if (str === lastPayloadRef.current) return;
       lastPayloadRef.current = str;
       setSyncState("saving");
       syncSave(auth.token, auth.userId, auth.username, payload)
