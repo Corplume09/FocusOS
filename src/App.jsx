@@ -93,6 +93,38 @@ async function lbFetch(token) {
   );
 }
 
+// ── Cross-device sync ─────────────────────────────────────────────────────
+// One row per user in `user_data` table: { user_id, username, payload (jsonb), updated_at }
+// The payload is the entire localStorage snapshot for that user, keyed without the uk_ prefix.
+
+async function syncLoad(token, userId) {
+  if (!token || !userId) return null;
+  try {
+    const rows = await sbFetch(
+      `user_data?user_id=eq.${userId}&select=payload,updated_at`,
+      {}, token
+    );
+    if (!rows || !rows.length) return null;
+    return rows[0].payload || null;
+  } catch { return null; }
+}
+
+async function syncSave(token, userId, username, payload) {
+  if (!token || !userId) return;
+  try {
+    await sbFetch("user_data?on_conflict=user_id", {
+      method: "POST",
+      prefer: "resolution=merge-duplicates,return=minimal",
+      body: JSON.stringify({
+        user_id: userId,
+        username,
+        payload,
+        updated_at: new Date().toISOString(),
+      }),
+    }, token);
+  } catch { /* silent — local data is still safe */ }
+}
+
 // ── Session persistence ───────────────────────────────────────────────────
 function loadAuth() {
   try { return JSON.parse(localStorage.getItem("focusos_auth") || "null"); } catch { return null; }
@@ -951,6 +983,9 @@ const CSS = `
   .hdr-devbadge{font-size:0.58rem;background:rgba(168,85,247,0.2);color:#a855f7;border:1px solid rgba(168,85,247,0.4);border-radius:4px;padding:1px 5px;font-family:var(--fm);letter-spacing:0.08em;}
   .hdr-logout{background:var(--sf2);border:1px solid var(--bd);border-radius:8px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--mt);font-size:0.9rem;transition:all .15s;flex-shrink:0;}
   .hdr-logout:hover{border-color:rgba(224,82,82,0.4);color:#e05252;background:rgba(224,82,82,0.08);}
+  .sync-pill{background:var(--sf2);border:1px solid var(--bd);border-radius:8px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--mt);font-size:0.95rem;transition:all .15s;flex-shrink:0;}
+  .sync-pill:hover{border-color:var(--gdim);color:var(--gold);}
+
 
   /* ══ LEADERBOARD ══ */
   .lb-wrap{background:var(--sf);border:1px solid var(--bd);border-radius:14px;overflow:hidden;}
@@ -2354,15 +2389,127 @@ function TaskItem({ t, contrib, subs, onToggle, onDel, onAddSub, onToggleSub, on
   );
 }
 
+// ── useSync — pull on login, push on change (debounced 4s) ───────────────
+// Keys that get synced. Note: uk prefix is stripped before upload, re-added on restore.
+const SYNC_KEYS = [
+  "prod_tasks_v2",
+  "prod_habit_list_v2",
+  "prod_timer_cfg_v2",
+  "prod_sound",
+  "prod_vol",
+  "score_history_v3",
+];
+// Daily keys use todayKey() — we sync the last 14 days worth
+function getDailySyncKeys(uk) {
+  const keys = [];
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const tk = d.toISOString().slice(0,10);
+    keys.push(
+      `prod_habits_${tk}`,
+      `challenge_bonus_${tk}`,
+      `challenge_active_${tk}`,
+      `challenge_done_${tk}`,
+      `challenge_substeps_${tk}`,
+      `nutrition_${tk}`,
+      `trk_water_${tk}`,
+      `trk_act_${tk}`,
+      `trk_read_${tk}`,
+      `trk_med_${tk}`,
+      `trk_sleep_${tk}`,
+      `trk_steps_${tk}`,
+      `trk_mood_${tk}`,
+      `trk_books_${tk}`,
+    );
+  }
+  // Non-daily keys
+  keys.push(
+    "trk_water_unit","trk_water_goal_oz",
+    "trk_act_unit",
+    "trk_steps_goal",
+    "trk_wt_unit","trk_wt_all",
+    "nutrition_goals",
+    "prod_pomo_count",
+  );
+  return keys;
+}
+
+function buildPayload(uk) {
+  const payload = {};
+  const allKeys = [...SYNC_KEYS, ...getDailySyncKeys(uk)];
+  allKeys.forEach(k => {
+    const raw = localStorage.getItem(`${uk}_${k}`);
+    if (raw !== null) payload[k] = raw; // store raw JSON strings
+  });
+  // Also persist per-habit sub-labels (dynamic keys)
+  Object.keys(localStorage).forEach(k => {
+    if (k.startsWith(`${uk}_habit_sublabel_`) || k.startsWith(`${uk}_trk_ctr_`)) {
+      payload[k.replace(`${uk}_`, "")] = localStorage.getItem(k);
+    }
+  });
+  return payload;
+}
+
+function applyPayload(uk, payload) {
+  if (!payload || typeof payload !== "object") return;
+  Object.entries(payload).forEach(([k, v]) => {
+    if (v !== null && v !== undefined) {
+      try { localStorage.setItem(`${uk}_${k}`, v); } catch {}
+    }
+  });
+}
+
+function useSync(auth) {
+  const uk = auth?.username ? `u_${auth.username}` : null;
+  const [syncState, setSyncState] = useState("idle"); // idle | loading | synced | error
+  const debounceRef = useRef(null);
+  const lastPayloadRef = useRef(null);
+
+  // On mount: pull remote data and merge into localStorage
+  useEffect(() => {
+    if (!auth?.token || !auth?.userId || !uk) return;
+    setSyncState("loading");
+    syncLoad(auth.token, auth.userId).then(payload => {
+      if (payload) {
+        applyPayload(uk, payload);
+        // Force a page reload so all usePersist hooks re-read from localStorage
+        window.location.reload();
+      }
+      setSyncState("synced");
+    }).catch(() => setSyncState("error"));
+  }, []); // run once on mount only
+
+  // Push: call this whenever data changes; debounced 4s
+  const push = useCallback(() => {
+    if (!auth?.token || !auth?.userId || !uk) return;
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const payload = buildPayload(uk);
+      const str = JSON.stringify(payload);
+      if (str === lastPayloadRef.current) return; // nothing changed
+      lastPayloadRef.current = str;
+      setSyncState("saving");
+      syncSave(auth.token, auth.userId, auth.username, payload)
+        .then(() => setSyncState("synced"))
+        .catch(() => setSyncState("error"));
+    }, 4000);
+  }, [auth, uk]);
+
+  return { syncState, push };
+}
+
 function App({ auth, onLogout }){
   const [tab,setTab]=useState("home");
   const today=new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
   const tk=todayKey();
-  // Scope all storage keys to the logged-in user so accounts don't bleed into each other
   const uk = auth?.username ? `u_${auth.username}` : "u_guest";
 
+  // Sync
+  const { syncState, push } = useSync(auth);
+
   // Tasks
-  const [tasks,setTasks]=usePersist(`${uk}_prod_tasks_v2`,[]);
+  const [tasks,setTasksRaw]=usePersist(`${uk}_prod_tasks_v2`,[]);
+  const setTasks = v => { setTasksRaw(v); push(); };
   const [newTask,setNewTask]=useState("");
   const [newPrio,setNewPrio]=useState("medium");
   const addTask=()=>{ if(!newTask.trim())return; setTasks(t=>[...t,{id:Date.now(),text:newTask.trim(),priority:newPrio,done:false,subtasks:[]}]); setNewTask(""); };
@@ -2433,15 +2580,18 @@ function App({ auth, onLogout }){
   const ss=String(pomSecs%60).padStart(2,"0");
 
   // Habits
-  const [habitList,setHabitList]=usePersist(`${uk}_prod_habit_list_v2`,DEFAULT_HABITS);
-  const [habitDone,setHabitDone]=usePersist(`${uk}_prod_habits_${tk}`,{});
+  const [habitList,setHabitListRaw]=usePersist(`${uk}_prod_habit_list_v2`,DEFAULT_HABITS);
+  const setHabitList = v => { setHabitListRaw(v); push(); };
+  const [habitDone,setHabitDoneRaw]=usePersist(`${uk}_prod_habits_${tk}`,{});
+  const setHabitDone = v => { setHabitDoneRaw(v); push(); };
   const toggleHabit=id=>setHabitDone(p=>({...p,[id]:!p[id]}));
   const habitCount=habitList.filter(h=>habitDone[h.id]).length;
 
   // Day reset
   const [showResetConfirm,setShowResetConfirm]=useState(false);
   const [resetKey,setResetKey]=useState(0);
-  const [challengeBonus,setChallengeBonus]=usePersist(`${uk}_challenge_bonus_${tk}`,0);
+  const [challengeBonus,setChallengeBonusRaw]=usePersist(`${uk}_challenge_bonus_${tk}`,0);
+  const setChallengeBonus = v => { setChallengeBonusRaw(v); push(); };
   const handleDayReset=()=>{
     setTasks(t=>t.map(x=>({...x,done:false})));
     setHabitDone({});
@@ -2451,6 +2601,7 @@ function App({ auth, onLogout }){
     save(`${uk}_trk_books_${tk}`,"0");
     setResetKey(k=>k+1);
     setShowResetConfirm(false);
+    push();
   };
 
   // Score
@@ -2511,6 +2662,19 @@ function App({ auth, onLogout }){
               {auth?.role==="dev"&&<span className="hdr-devbadge">DEV</span>}
             </div>
             <button className="hdr-logout" onClick={onLogout} title="Sign out">⏏</button>
+            {auth?.role!=="dev"&&(
+              <div className="sync-pill" title={
+                syncState==="loading"?"Syncing from cloud…":
+                syncState==="saving"?"Saving to cloud…":
+                syncState==="synced"?"All changes saved":
+                syncState==="error"?"Sync error — changes saved locally":
+                "Sync"
+              } onClick={()=>push()}>
+                {syncState==="loading"||syncState==="saving" ? "⟳" :
+                 syncState==="synced" ? "☁" :
+                 syncState==="error" ? "⚠" : "☁"}
+              </div>
+            )}
             <button className="reset-day-btn" onClick={()=>setShowResetConfirm(true)}>
               <span className="rdb-icon">🔄</span>
               <span className="rdb-lbl">Reset</span>
