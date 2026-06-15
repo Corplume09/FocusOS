@@ -1045,9 +1045,7 @@ const CSS = `
 function buildCompoundHistory(safeHistory, todayDate, liveScore) {
   const realMap = {};
   safeHistory.forEach(e => { realMap[e.date] = e.score; });
-  // Only count today's live score if it's better than what's stored
-  const stored = realMap[todayDate] ?? 0;
-  realMap[todayDate] = Math.max(stored, liveScore);
+  realMap[todayDate] = liveScore;
   const sorted = Object.keys(realMap).sort();
   let compound = 0;
   const result = [];
@@ -1066,19 +1064,14 @@ function WiiProgressGraph({ score }) {
   const [animPct, setAnimPct] = useState(0);
 
   useEffect(() => {
-    if (score <= 0) return; // never write a 0 — wait until there's something to save
+    if (score <= 0) return;
     const today = todayKey();
     setHistory(h => {
       const arr = Array.isArray(h) ? h : [];
       const copy = [...arr];
       const idx  = copy.findIndex(e => e.date === today);
-      if (idx >= 0) {
-        // Only update if new score is higher — never overwrite with a lower value
-        if (score <= copy[idx].score) return copy;
-        copy[idx] = { date: today, score };
-      } else {
-        copy.push({ date: today, score });
-      }
+      if (idx >= 0) copy[idx] = { date: today, score };
+      else copy.push({ date: today, score });
       return copy.slice(-60);
     });
   }, [score]);
