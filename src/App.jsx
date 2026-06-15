@@ -1040,19 +1040,20 @@ const CSS = `
 `;
 
 // ── Compound score engine ─────────────────────────────────────────────────
-// Each day: compound += rawScore - penalty, where penalty = max(0, 100 - rawScore)
-// So a 100 day = +100. A 90 day = +90 - 10 = net +80. A 0 day = -100 (floored at 0).
+// Purely additive — each day just adds its score to the running total.
+// No penalties for missing days or scoring below 100.
 function buildCompoundHistory(safeHistory, todayDate, liveScore) {
   const realMap = {};
   safeHistory.forEach(e => { realMap[e.date] = e.score; });
-  realMap[todayDate] = liveScore;
+  // Only count today's live score if it's better than what's stored
+  const stored = realMap[todayDate] ?? 0;
+  realMap[todayDate] = Math.max(stored, liveScore);
   const sorted = Object.keys(realMap).sort();
   let compound = 0;
   const result = [];
   for (const date of sorted) {
     const raw = realMap[date];
-    const penalty = Math.max(0, 100 - raw);
-    compound = Math.max(0, compound + raw - penalty);
+    compound = compound + raw;
     result.push({ date, raw, compound });
   }
   return result;
@@ -1065,13 +1066,19 @@ function WiiProgressGraph({ score }) {
   const [animPct, setAnimPct] = useState(0);
 
   useEffect(() => {
+    if (score <= 0) return; // never write a 0 — wait until there's something to save
     const today = todayKey();
     setHistory(h => {
       const arr = Array.isArray(h) ? h : [];
       const copy = [...arr];
       const idx  = copy.findIndex(e => e.date === today);
-      const entry = { date: today, score };
-      if (idx >= 0) copy[idx] = entry; else copy.push(entry);
+      if (idx >= 0) {
+        // Only update if new score is higher — never overwrite with a lower value
+        if (score <= copy[idx].score) return copy;
+        copy[idx] = { date: today, score };
+      } else {
+        copy.push({ date: today, score });
+      }
       return copy.slice(-60);
     });
   }, [score]);
@@ -2618,7 +2625,20 @@ function App({ auth, onLogout }){
   const [resetKey,setResetKey]=useState(0);
   const [challengeBonus,setChallengeBonusRaw]=usePersist(`${uk}_challenge_bonus_${tk}`,0);
   const setChallengeBonus = v => { setChallengeBonusRaw(v); push(); };
-  const handleDayReset=()=>{
+  const handleDayReset=(currentScore)=>{
+    // Lock in today's score before wiping the slate
+    if (currentScore > 0) {
+      const today = todayKey();
+      const histKey = `${uk}_score_history_v3`;
+      try {
+        const existing = JSON.parse(localStorage.getItem(histKey) || "[]");
+        const arr = Array.isArray(existing) ? existing : [];
+        const idx = arr.findIndex(e => e.date === today);
+        if (idx >= 0) { if (currentScore > arr[idx].score) arr[idx] = { date: today, score: currentScore }; }
+        else arr.push({ date: today, score: currentScore });
+        localStorage.setItem(histKey, JSON.stringify(arr.slice(-60)));
+      } catch {}
+    }
     setTasks(t=>t.map(x=>({...x,done:false})));
     setHabitDone({});
     setPomDone(0);resetPom();
@@ -2662,6 +2682,7 @@ function App({ auth, onLogout }){
             <div className="confirm-title">Reset Today?</div>
             <div className="confirm-desc">This clears your progress and gives you a fresh start:</div>
             <ul className="confirm-list">
+              <li>Today's score ({score} pts) saved to history</li>
               <li>All tasks unchecked (list kept)</li>
               <li>All habit completions cleared</li>
               <li>Pomodoro count reset to 0</li>
@@ -2670,7 +2691,7 @@ function App({ auth, onLogout }){
             </ul>
             <div className="confirm-btns">
               <button className="confirm-cancel" onClick={()=>setShowResetConfirm(false)}>Cancel</button>
-              <button className="confirm-ok" onClick={handleDayReset}>Reset Day</button>
+              <button className="confirm-ok" onClick={()=>handleDayReset(score)}>Reset Day</button>
             </div>
           </div>
         </div>
